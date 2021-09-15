@@ -1,12 +1,13 @@
 use crate::datafile::DataFile;
+use 
 pub struct DB {
     // active file:
     active_data_file: DataFile,
 }
 
 impl DB {
-    pub fn open() {
-        println!("open db");
+    pub fn open(dirPath: &str) {
+        create
     }
 }
 
