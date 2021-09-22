@@ -30,6 +30,19 @@ pub fn put_varuint64(dst: &mut [u8], n: u64) -> usize {
     i + 1
 }
 
+pub fn put_uint32(dst: &mut [u8], n: u32) {
+    let _ = dst[3];
+    dst[0] = n as u8;
+    dst[1] = (n >> 8) as u8;
+    dst[2] = (n >> 16) as u8;
+    dst[3] = (n >> 24) as u8;
+}
+
+pub fn read_u32(src: &[u8]) -> u32 {
+    let _ = src[3]; // bounds check hint to compiler; see golang.org/issue/14808
+    src[0] as u32 | (src[1] as u32) << 8 | (src[2] as u32) << 16 | (src[3] as u32) << 24
+}
+
 pub fn read_varint64(src: &[u8]) -> Option<(i64, usize)> {
     if let Some((result, size)) = read_varuint64(src) {
         Some((zigzag_decode(result), size))
@@ -64,18 +77,28 @@ mod tests {
     #[test]
     fn test_put_varint64() {
         let mut buf: [u8; 10] = [0; 10];
-        let sz = put_varuint64(&mut buf[..], 123456789);
-        let v = read_varuint64(&buf[..]);
-        match v {
-            Some((num, i)) => println!("{},{}", num, i),
-            None => println!("read node"),
-        }
-
         let sz = put_varint64(&mut buf[..], -123456789);
         let v = read_varint64(&buf[..]);
         match v {
             Some((num, i)) => println!("{},{}", num, i),
             None => println!("read node"),
         }
+    }
+    #[test]
+    fn test_put_varuint64() {
+        let mut buf: [u8; 10] = [0; 10];
+        let sz = put_varuint64(&mut buf[..], 123456789);
+        let v = read_varuint64(&buf[..]);
+        match v {
+            Some((num, i)) => println!("{},{}", num, i),
+            None => println!("read node"),
+        }
+    }
+    #[test]
+    fn test_put_u32() {
+        let mut buf: [u8; 10] = [0; 10];
+        put_uint32(&mut buf[..], 365897485);
+        let v = read_u32(&buf[..]);
+        println!("{}", v);
     }
 }

@@ -1,4 +1,6 @@
 use crate::util::binary;
+use crc::crc32;
+use crc::Hasher32;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Error;
@@ -14,11 +16,12 @@ const FILENAME: &str = "my.db";
 
 pub struct DataFile {
     file: File,
-    offset: i64,
     share: [u8; 10],
-    buf: Vec<u8>,
+    buf1: Vec<u8>,
+    buf2: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub struct Entry {
     pub timestamp: u64,
     pub key: Vec<u8>,
@@ -38,36 +41,46 @@ impl DataFile {
         let data_file = DataFile {
             file: f,
             share: [0; 10],
-            offset: 0,
-            buf: Vec::new(),
+            buf1: Vec::new(),
+            buf2: Vec::new(),
         };
 
         Ok(data_file)
     }
 
     pub fn put(&mut self, e: &Entry) -> Result<usize> {
-        self.buf.clear();
+        self.buf1.clear();
+        self.buf2.clear();
         let mut m = 0;
         let mut n = binary::put_varuint64(&mut self.share, e.timestamp);
         m += n;
-        self.buf.extend_from_slice(&self.share[0..n]);
+        self.buf1.extend_from_slice(&self.share[0..n]);
         n = binary::put_varuint64(&mut self.share, e.key.len() as u64);
         m += n;
-        self.buf.extend_from_slice(&self.share[0..n]);
-        self.buf.extend_from_slice(e.key.as_slice());
+        self.buf1.extend_from_slice(&self.share[0..n]);
+        self.buf1.extend_from_slice(e.key.as_slice());
         n = binary::put_varuint64(&mut self.share, e.value.len() as u64);
         m += n;
-        self.buf.extend_from_slice(&self.share[0..n]);
-        self.buf.extend_from_slice(e.value.as_slice());
+        self.buf1.extend_from_slice(&self.share[0..n]);
+        self.buf1.extend_from_slice(e.value.as_slice());
+
+        let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
+        digest.write(self.buf1.as_slice());
+        // let mut n = binary::put_uint32(&mut self.share);
+        //self.buf2.w
+
+        self.buf2.append(&mut self.buf1);
+
         self.file
-            .write_all(self.buf.as_slice())
+            .write_all(self.buf2.as_slice())
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
+        self.file.sync_all()?;
         Ok(m + e.key.len() + e.value.len())
     }
 
     pub fn sync() {}
 
-    pub fn read(&mut self, offset: u64, size: usize) -> Result<()> {
+    pub fn read(&mut self, offset: u64, size: usize) -> Result<Entry> {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
@@ -77,28 +90,29 @@ impl DataFile {
             .read(&mut buf[..])
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let _buf = buf.as_slice();
-        let (timestamp, m) = binary::read_varuint64(&_buf)
+        let (timestamp, n0) = binary::read_varuint64(&_buf)
             .ok_or(Error::from(ErrorKind::Unsupported))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
-        let (nkey, n1) = binary::read_varuint64(&_buf[m..])
+        let (nkey, n1) = binary::read_varuint64(&_buf[n0..])
             .ok_or(Error::from(ErrorKind::Unsupported))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let nkey = nkey as usize;
-        let key = &_buf[m + n1..m + n1 + nkey];
-        let (nvalue, n2) = binary::read_varuint64(&_buf[m + n1 + nkey..])
+        let key = &_buf[n0 + n1..n0 + n1 + nkey];
+        let (nvalue, n2) = binary::read_varuint64(&_buf[n0 + n1 + nkey..])
             .ok_or(Error::from(ErrorKind::Unsupported))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let nvalue = nvalue as usize;
-        let value = &_buf[m + n1 + nkey + n2..m + n1 + nkey + n2 + nvalue];
+        let value = &_buf[n0 + n1 + nkey + n2..n0 + n1 + nkey + n2 + nvalue];
 
-        println!(
-            "{},{},{}",
-            timestamp,
-            String::from_utf8_lossy(key),
-            String::from_utf8_lossy(value),
-        );
-        Ok(())
+        let e = Entry {
+            timestamp: timestamp,
+            key: key.to_vec(),
+            value: value.to_vec(),
+        };
+        Ok(e)
     }
+
+    pub fn iterator(&mut self) {}
 }
 
 #[cfg(test)]
@@ -113,9 +127,11 @@ mod tests {
             value: "kingdee".as_bytes().to_vec(),
         };
         let sz = _db.put(&e).unwrap();
-        _db.read(0, sz).unwrap();
+        let _e = _db.read(0, sz).unwrap();
+        println!("{:?}", _e);
         e.key = "lisi".as_bytes().to_vec();
         let sz2 = _db.put(&e).unwrap();
-        _db.read(sz as u64, sz2).unwrap();
+        let _e = _db.read(sz as u64, sz2).unwrap();
+        println!("{:?}", _e);
     }
 }
