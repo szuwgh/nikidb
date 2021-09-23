@@ -17,9 +17,10 @@ const FILENAME: &str = "my.db";
 pub struct DataFile {
     file: File,
     share: [u8; 10],
-    buf1: Vec<u8>,
-    buf2: Vec<u8>,
+    buf: Vec<u8>,
 }
+
+pub struct DataFileIterator {}
 
 #[derive(Debug)]
 pub struct Entry {
@@ -41,41 +42,41 @@ impl DataFile {
         let data_file = DataFile {
             file: f,
             share: [0; 10],
-            buf1: Vec::new(),
-            buf2: Vec::new(),
+            buf: Vec::new(),
         };
 
         Ok(data_file)
     }
 
     pub fn put(&mut self, e: &Entry) -> Result<usize> {
-        self.buf1.clear();
-        self.buf2.clear();
+        self.buf.clear();
         let mut m = 0;
         let mut n = binary::put_varuint64(&mut self.share, e.timestamp);
         m += n;
-        self.buf1.extend_from_slice(&self.share[0..n]);
+        self.buf.extend_from_slice(&self.share[0..n]);
+
         n = binary::put_varuint64(&mut self.share, e.key.len() as u64);
         m += n;
-        self.buf1.extend_from_slice(&self.share[0..n]);
-        self.buf1.extend_from_slice(e.key.as_slice());
+        self.buf.extend_from_slice(&self.share[0..n]);
+
+        self.buf.extend_from_slice(e.key.as_slice());
+
         n = binary::put_varuint64(&mut self.share, e.value.len() as u64);
         m += n;
-        self.buf1.extend_from_slice(&self.share[0..n]);
-        self.buf1.extend_from_slice(e.value.as_slice());
+        self.buf.extend_from_slice(&self.share[0..n]);
+        self.buf.extend_from_slice(e.value.as_slice());
 
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
-        digest.write(self.buf1.as_slice());
-        // let mut n = binary::put_uint32(&mut self.share);
-        //self.buf2.w
+        digest.write(self.buf.as_slice());
+        binary::put_uint32(&mut self.share, digest.sum32());
+        self.buf.extend_from_slice(&self.share[0..4]);
 
-        self.buf2.append(&mut self.buf1);
-
+        let nvalue = m + e.key.len() + e.value.len();
         self.file
-            .write_all(self.buf2.as_slice())
+            .write_all(self.buf.as_slice())
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         self.file.sync_all()?;
-        Ok(m + e.key.len() + e.value.len())
+        Ok(4 + nvalue)
     }
 
     pub fn sync() {}
@@ -84,12 +85,20 @@ impl DataFile {
         self.file
             .seek(SeekFrom::Start(offset))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
+
         let mut buf = vec![0; size];
-        let n = self
-            .file
+        self.file
             .read(&mut buf[..])
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let _buf = buf.as_slice();
+        let crc = binary::read_u32(&_buf[_buf.len() - 4..]);
+        let _buf = &_buf[.._buf.len() - 4];
+        let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
+        digest.write(_buf);
+
+        if crc != digest.sum32() {
+            return Err(Error::new(ErrorKind::Interrupted, "crc invalid"));
+        }
         let (timestamp, n0) = binary::read_varuint64(&_buf)
             .ok_or(Error::from(ErrorKind::Unsupported))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
@@ -103,7 +112,6 @@ impl DataFile {
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let nvalue = nvalue as usize;
         let value = &_buf[n0 + n1 + nkey + n2..n0 + n1 + nkey + n2 + nvalue];
-
         let e = Entry {
             timestamp: timestamp,
             key: key.to_vec(),

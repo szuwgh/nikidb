@@ -98,6 +98,7 @@ mod tests {
     fn test_put_u32() {
         let mut buf: [u8; 10] = [0; 10];
         put_uint32(&mut buf[..], 365897485);
+        println!("{:?}", buf);
         let v = read_u32(&buf[..]);
         println!("{}", v);
     }

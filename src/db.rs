@@ -12,11 +12,11 @@ pub struct DB {
 }
 
 impl DB {
-    pub fn open(dirPath: &str) -> Result<DB> {
+    pub fn open(dir_path: &str) -> Result<DB> {
         //create database dir
-        fs::create_dir_all(dirPath).map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
+        fs::create_dir_all(dir_path).map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let db = DB {
-            active_data_file: DataFile::new(dirPath)?,
+            active_data_file: DataFile::new(dir_path)?,
             indexes: HashMap::new(),
         };
         Ok(db)
@@ -24,7 +24,8 @@ impl DB {
 
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         if key.len() == 0 {
-            //Ok(())
+            // Ok(())
+            //return Err(_);
         }
         //
         Ok(())
