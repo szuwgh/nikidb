@@ -20,7 +20,9 @@ pub struct DataFile {
     buf: Vec<u8>,
 }
 
-pub struct DataFileIterator {}
+pub struct DataFileIterator {
+    data_file: DataFile,
+}
 
 #[derive(Debug)]
 pub struct Entry {
@@ -111,7 +113,8 @@ impl DataFile {
             .ok_or(Error::from(ErrorKind::Unsupported))
             .map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let nvalue = nvalue as usize;
-        let value = &_buf[n0 + n1 + nkey + n2..n0 + n1 + nkey + n2 + nvalue];
+        let m = n0 + n1 + nkey + n2;
+        let value = &_buf[m..m + nvalue];
         let e = Entry {
             timestamp: timestamp,
             key: key.to_vec(),
