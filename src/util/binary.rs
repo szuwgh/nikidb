@@ -30,17 +30,43 @@ pub fn put_varuint64(dst: &mut [u8], n: u64) -> usize {
     i + 1
 }
 
-pub fn put_uint32(dst: &mut [u8], n: u32) {
-    let _ = dst[3];
-    dst[0] = n as u8;
-    dst[1] = (n >> 8) as u8;
-    dst[2] = (n >> 16) as u8;
-    dst[3] = (n >> 24) as u8;
-}
+pub mod BigEndian {
+    pub fn put_uint32(dst: &mut [u8], n: u32) {
+        let _ = dst[3];
+        dst[0] = (n >> 24) as u8;
+        dst[1] = (n >> 16) as u8;
+        dst[2] = (n >> 8) as u8;
+        dst[3] = n as u8;
+    }
 
-pub fn read_u32(src: &[u8]) -> u32 {
-    let _ = src[3]; // bounds check hint to compiler; see golang.org/issue/14808
-    src[0] as u32 | (src[1] as u32) << 8 | (src[2] as u32) << 16 | (src[3] as u32) << 24
+    pub fn read_u32(src: &[u8]) -> u32 {
+        let _ = src[3]; // bounds check hint to compiler; see golang.org/issue/14808
+        src[3] as u32 | (src[2] as u32) << 8 | (src[1] as u32) << 16 | (src[0] as u32) << 24
+    }
+
+    pub fn put_uint64(dst: &mut [u8], n: u64) {
+        let _ = dst[7];
+        dst[0] = (n >> 56) as u8; // byte(v >> 56);
+        dst[1] = (n >> 48) as u8;
+        dst[2] = (n >> 40) as u8;
+        dst[3] = (n >> 32) as u8;
+        dst[4] = (n >> 24) as u8;
+        dst[5] = (n >> 16) as u8;
+        dst[6] = (n >> 8) as u8;
+        dst[7] = n as u8;
+    }
+
+    pub fn read_u64(src: &[u8]) -> u64 {
+        let _ = src[7]; // bounds check hint to compiler; see golang.org/issue/14808
+        src[7] as u64
+            | (src[6] as u64) << 8
+            | (src[5] as u64) << 16
+            | (src[4] as u64) << 24
+            | (src[3] as u64) << 32
+            | (src[2] as u64) << 40
+            | (src[1] as u64) << 48
+            | (src[0] as u64) << 56
+    }
 }
 
 pub fn read_varint64(src: &[u8]) -> Option<(i64, usize)> {
@@ -97,9 +123,17 @@ mod tests {
     #[test]
     fn test_put_u32() {
         let mut buf: [u8; 10] = [0; 10];
-        put_uint32(&mut buf[..], 365897485);
+        BigEndian::put_uint32(&mut buf[..], 365897485);
         println!("{:?}", buf);
-        let v = read_u32(&buf[..]);
+        let v = BigEndian::read_u32(&buf[..]);
+        println!("{}", v);
+    }
+    #[test]
+    fn test_put_u64() {
+        let mut buf: [u8; 10] = [0; 10];
+        BigEndian::put_uint64(&mut buf[..], 1365897485);
+        println!("{:?}", buf);
+        let v = BigEndian::read_u64(&buf[..]);
         println!("{}", v);
     }
 }
