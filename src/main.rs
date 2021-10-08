@@ -1,11 +1,8 @@
-mod config;
-mod datafile;
-mod db;
-mod error;
-mod util;
-use db::DB;
+use nikidb::db::DB;
+use nikidb::option::Options;
 fn main() {
-    let mut d = DB::open("./dbfile").unwrap();
+    let c = Options::default();
+    let mut d = DB::open("./dbfile", c).unwrap();
     let offset = d
         .put("cb".as_bytes(), "aaabbbccccffffff".as_bytes())
         .unwrap();

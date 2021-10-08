@@ -17,7 +17,7 @@ const FILENAME: &str = "my.db";
 
 //4 + 4 + 4 + 8
 //crc + key_len + value_len + timestamp
-const entryHeaderSize: usize = 20;
+const ENTRY_HEADER_SIZE: usize = 20;
 
 pub struct DataFile {
     file: File,
@@ -71,14 +71,14 @@ impl Entry {
         binary::BigEndian::put_uint32(&mut buf[4..8], ks as u32);
         binary::BigEndian::put_uint32(&mut buf[8..12], vs as u32);
         binary::BigEndian::put_uint64(&mut buf[12..20], self.timestamp);
-        buf[entryHeaderSize..entryHeaderSize + ks].clone_from_slice(self.key.as_slice());
-        buf[entryHeaderSize + ks..entryHeaderSize + ks + vs]
+        buf[ENTRY_HEADER_SIZE..ENTRY_HEADER_SIZE + ks].clone_from_slice(self.key.as_slice());
+        buf[ENTRY_HEADER_SIZE + ks..ENTRY_HEADER_SIZE + ks + vs]
             .clone_from_slice(self.value.as_slice());
         buf
     }
 
     pub fn size(&self) -> usize {
-        self.key.len() + self.value.len() + entryHeaderSize
+        self.key.len() + self.value.len() + ENTRY_HEADER_SIZE
     }
 }
 
@@ -104,7 +104,10 @@ impl DataFile {
         Ok(s)
     }
 
-    pub fn sync() {}
+    pub fn sync(&mut self) -> IoResult<()> {
+        self.file.sync_all()?;
+        Ok(())
+    }
 
     pub fn read(&mut self, offset: u64) -> IoResult<Entry> {
         self.file.seek(SeekFrom::Start(offset))?;
@@ -112,7 +115,7 @@ impl DataFile {
     }
 
     pub fn next(&mut self) -> IoResult<Entry> {
-        let mut buf = vec![0; entryHeaderSize];
+        let mut buf = vec![0; ENTRY_HEADER_SIZE];
         let sz = self.file.read(&mut buf)?;
         if sz == 0 {
             return Err(Error::from(ErrorKind::Interrupted));
@@ -125,10 +128,6 @@ impl DataFile {
 
     pub fn iterator(&mut self) -> DataFileIterator {
         DataFileIterator::new(self)
-    }
-
-    pub fn set_offset(&mut self, offset: u64) {
-        self.offset = offset;
     }
 }
 

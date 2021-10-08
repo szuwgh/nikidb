@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "photon"
+name = "server"
 version = "0.1.0"
 dependencies = [
  "nikidb",
