@@ -13,7 +13,13 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-const FILENAME: &str = "my.db";
+const DATA_FILE_NAME: &str = "{:09}!.data";
+
+macro_rules! data_file_format {
+    () => {
+        "{:09}.data"
+    };
+}
 
 //4 + 4 + 4 + 8
 //crc + key_len + value_len + timestamp
@@ -22,6 +28,7 @@ const ENTRY_HEADER_SIZE: usize = 20;
 pub struct DataFile {
     file: File,
     pub offset: u64,
+    file_id: u32,
 }
 
 pub struct DataFileIterator<'a> {
@@ -83,16 +90,20 @@ impl Entry {
 }
 
 impl DataFile {
-    pub fn new(dir_path: &str) -> IoResult<DataFile> {
+    pub fn new(dir_path: &str, file_id: u32) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
+        let data_file_name = path.join(format!(data_file_format!(), file_id));
         let f = OpenOptions::new()
             .read(true)
             .append(true)
             .write(true)
             .create(true)
-            .open(path.join(FILENAME))?;
-        let data_file = DataFile { file: f, offset: 0 };
-        Ok(data_file)
+            .open(data_file_name)?;
+        Ok(Self {
+            file: f,
+            offset: 0,
+            file_id: file_id,
+        })
     }
 
     pub fn put(&mut self, e: &Entry) -> IoResult<u64> {
@@ -136,7 +147,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_put_and_read() {
-        let mut _db = DataFile::new("./dbfile").unwrap();
+        let mut _db = DataFile::new("./dbfile", 0).unwrap();
         let mut e = Entry {
             timestamp: 123456,
             key: "zhangsan".as_bytes().to_vec(),
