@@ -13,12 +13,6 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-const DATA_TYPE_STR: &str = "str";
-const DATA_TYPE_LIST: &str = "list";
-const DATA_TYPE_HASH: &str = "hash";
-const DATA_TYPE_SET: &str = "set";
-const DATA_TYPE_ZSET: &str = "zset";
-
 macro_rules! data_file_format {
     ($ext:expr,$file_id:expr) => {
         format!("{:09}.data.{}", $file_id, $ext)
