@@ -11,52 +11,55 @@ use std::io::ErrorKind;
 pub struct DB {
     // active file:
     active_data_file: DataFile,
-    // archived_files: HashMap<u32, DataFile>,
+    //archived_files
+    archived_files: HashMap<u32, DataFile>,
     //memory index message
-    indexes: HashMap<String, u64>,
+    indexes: HashMap<Vec<u8>, u64>,
     //db config
     options: Options,
 }
 
-// let path = Path::new("./");
-// for entry in fs::read_dir(path).expect("读取目录失败") {
-//     if let Ok(entry) = entry {
-//         let file = entry.path();
-//         let filename = file.to_str().unwrap();
-//         let new_filename = format!("{}.jpg", filename);
-//         match fs::rename(filename, &new_filename) {
-//             Err(why) => panic!("{} => {}: {}", filename, new_filename, why.description()),
-//             Ok(_) => println!("{} => {}", filename, new_filename),
-//         }
-//     }
-// }
+fn build_data_file(dir_path: &str) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
+    let mut files_map: HashMap<u32, DataFile> = HashMap::new();
+    let dir = fs::read_dir("./db")?;
 
-// let names =
-// paths.filter_map(|entry| {
-//   entry.ok().and_then(|e|
-//     e.path().file_name()
-//     .and_then(|n| n.to_str().map(|s| String::from(s)))
-//   )
-// }).collect::<Vec<String>>();
-// fn build(dir_path: &str) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
-//     //let files_map
-//     let dir = fs::read_dir(dir_path)?;
-//     for path in dir {
-//         let p = path.unwrap().path();
-//         let file_name = String::from(p.file_name().unwrap());
-//         let splic_name = file_name.split(".").collect();
-
-//         // splict
-//     }
-// }
+    let names = dir
+        .filter_map(|entry| {
+            entry.ok().and_then(|e| {
+                e.path().file_name().and_then(|n| {
+                    n.to_str().and_then(|s| {
+                        if s.contains(".data") {
+                            let split_name: Vec<&str> = s.split(".").collect();
+                            let id = split_name[0].parse::<u32>().ok()?;
+                            return Some(id);
+                        }
+                        None
+                    })
+                })
+            })
+        })
+        .collect::<Vec<u32>>();
+    let active_file: DataFile;
+    if names.len() > 0 {
+        let len_names = names.len() - 1;
+        active_file = DataFile::new(dir_path, names[len_names])?;
+        for i in 0..len_names {
+            files_map.insert(names[i], DataFile::new(dir_path, names[len_names])?);
+        }
+    } else {
+        active_file = DataFile::new(dir_path, 0)?;
+    }
+    Ok((active_file, files_map))
+}
 
 impl DB {
     pub fn open(dir_path: &str, options: Options) -> IoResult<DB> {
         //create database dir
         fs::create_dir_all(dir_path).map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
-
+        let (active_file, archived_files) = build_data_file(dir_path)?;
         let mut db = DB {
-            active_data_file: DataFile::new(dir_path, 2)?,
+            active_data_file: active_file,
+            archived_files: archived_files,
             indexes: HashMap::new(),
             options: options,
         };
@@ -75,8 +78,7 @@ impl DB {
                 Ok(entry) => entry,
                 Err(_) => break,
             };
-            self.indexes
-                .insert(String::from_utf8(entry.key.clone()).unwrap(), offset);
+            self.indexes.insert(entry.key.clone(), offset);
             offset += entry.size() as u64;
         }
         self.active_data_file.offset = offset;
@@ -94,8 +96,7 @@ impl DB {
             crc: 0,
         };
         let offset = self.store(&e)?;
-        self.indexes
-            .insert(String::from_utf8(e.key).unwrap(), offset);
+        self.indexes.insert(e.key, offset);
         Ok(offset)
     }
 
@@ -112,7 +113,7 @@ impl DB {
     pub fn read(&mut self, key: &[u8]) -> IoResult<Entry> {
         let offset = self
             .indexes
-            .get(&String::from_utf8(key.to_vec()).unwrap())
+            .get(&key.to_vec())
             .ok_or(Error::from(ErrorKind::Interrupted))?;
         self.active_data_file.read(*offset)
     }
@@ -126,16 +127,10 @@ mod tests {
         let c = Options::default();
         let mut d = DB::open("./db", c).unwrap();
         d.put("a".as_bytes(), "aaabbbcccccc".as_bytes()).unwrap();
+        println!(d.read("a".as_bytes()).unwrap())
     }
     #[test]
-    fn test_read_dir() {
-        let dir = fs::read_dir("D:\\rsproject\\photon\\nikidb\\db").unwrap();
-        for path in dir {
-            let p = path.unwrap().path();
-            let file_name = String::from(p.file_name().unwrap().to_str().unwrap());
-            let split_name: Vec<&str> = file_name.split(".").collect();
-            let id = split_name[0] as u32;
-            println!("{:?}", id);
-        }
+    fn test_build_data_file() {
+        build_data_file("./db");
     }
 }

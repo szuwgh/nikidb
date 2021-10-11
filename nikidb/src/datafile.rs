@@ -13,11 +13,15 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 
-const DATA_FILE_NAME: &str = "{:09}!.data";
+const DATA_TYPE_STR: &str = "str";
+const DATA_TYPE_LIST: &str = "list";
+const DATA_TYPE_HASH: &str = "hash";
+const DATA_TYPE_SET: &str = "set";
+const DATA_TYPE_ZSET: &str = "zset";
 
 macro_rules! data_file_format {
-    () => {
-        "{:09}.data"
+    ($ext:expr,$file_id:expr) => {
+        format!("{:09}.data.{}", $file_id, $ext)
     };
 }
 
@@ -92,7 +96,7 @@ impl Entry {
 impl DataFile {
     pub fn new(dir_path: &str, file_id: u32) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
-        let data_file_name = path.join(format!(data_file_format!(), file_id));
+        let data_file_name = path.join(data_file_format!("str", file_id));
         let f = OpenOptions::new()
             .read(true)
             .append(true)
@@ -161,5 +165,9 @@ mod tests {
         let sz2 = _db.put(&e).unwrap();
         let _e = _db.read(sz2).unwrap();
         println!("{:?}", _e);
+    }
+    #[test]
+    fn test_data_file_format() {
+        println!("{}", data_file_format!("str", 1));
     }
 }
