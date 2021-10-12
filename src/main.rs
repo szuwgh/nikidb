@@ -1,15 +1,15 @@
-use nikidb::db::DB;
-use nikidb::option::Options;
+use std::collections::HashMap;
+
+struct A {
+    map2: HashMap<u32, HashMap<u32, u32>>,
+}
+
 fn main() {
-    let c = Options::default();
-    let mut d = DB::open("./dbfile", c).unwrap();
-    let offset = d
-        .put("cb".as_bytes(), "aaabbbccccffffff".as_bytes())
-        .unwrap();
-    let e = d.read("a".as_bytes()).unwrap();
-    println!(
-        "value is {}",
-        std::str::from_utf8(e.value.as_slice()).unwrap()
-    );
-    //println!("offset :{}", offset);
+    let mut m: HashMap<u32, &str> = HashMap::new();
+    m.insert(1, "a");
+    m.insert(2, "a");
+    m.insert(3, "a");
+    m.iter_mut()
+        .map(|(_id, _)| _id.clone())
+        .collect::<Vec<u32>>();
 }

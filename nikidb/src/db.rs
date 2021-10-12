@@ -4,6 +4,7 @@ use crate::error::IoResult;
 use crate::option::DataType;
 use crate::option::Options;
 use crate::option::{DATA_TYPE_HASH, DATA_TYPE_LIST, DATA_TYPE_SET, DATA_TYPE_STR, DATA_TYPE_ZSET};
+use crate::result_skip_fail;
 use crate::util::time;
 use std::collections::HashMap;
 use std::fs;
@@ -44,11 +45,11 @@ fn build_data_file(
             })
         })
         .collect::<Vec<String>>();
-    files_type_map.insert(DataType::String, HashMap::new());
-    let active_file: HashMap<DataType, DataFile> = HashMap::new();
+
+    let mut files_id_map: HashMap<DataType, Vec<u32>> = HashMap::new();
+    let mut active_files: HashMap<DataType, DataFile> = HashMap::new();
     for n in names.iter() {
         let split_name: Vec<&str> = n.split(".").collect();
-        let id = split_name[0].parse::<i32>().unwrap();
         let data_type = match split_name[2] {
             DATA_TYPE_ZSET => DataType::ZSet,
             DATA_TYPE_STR => DataType::String,
@@ -57,54 +58,80 @@ fn build_data_file(
             DATA_TYPE_SET => DataType::Set,
             _ => continue,
         };
-
-        //println!("{}", n);
+        let id = result_skip_fail!(split_name[0].parse::<u32>());
+        let id_vec = files_id_map.entry(data_type).or_insert(Vec::new());
+        id_vec.push(id);
     }
-    // if names.len() > 0 {
-    //let len_names =
 
-    // let len_names = names.len() - 1;
-    // active_file = DataFile::new(dir_path, names[len_names])?;
-    // for i in 0..len_names {
-    //     files_map.insert(names[i], DataFile::new(dir_path, names[len_names])?);
-    // }
-    // } else {
-    //     active_file = DataFile::new(dir_path, 0)?;
-    // }
-    Ok((active_file, files_type_map))
+    for k in DataType::iterate() {
+        let files_map = files_type_map.entry(k).or_insert(HashMap::new());
+        match files_id_map.get(&k) {
+            Some(v) => {
+                active_files.insert(k, DataFile::new(dir_path, v[v.len() - 1], k)?);
+                for i in 0..v.len() - 1 {
+                    files_map.insert(v[i], DataFile::new(dir_path, v[i], k)?);
+                }
+            }
+            None => {
+                active_files.insert(k, DataFile::new(dir_path, 0, k)?);
+            }
+        }
+    }
+    Ok((active_files, files_type_map))
 }
 
 impl DB {
     pub fn open(dir_path: &str, options: Options) -> IoResult<DB> {
         //create database dir
         fs::create_dir_all(dir_path).map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
-        let (active_file, archived_files) = build_data_file(dir_path)?;
+        let (active_files, archived_files) = build_data_file(dir_path)?;
         let mut db = DB {
-            active_file_map: active_file,
+            active_file_map: active_files,
             archived_files: archived_files,
             indexes: HashMap::new(),
             options: options,
         };
-        // db.load_index();
+        db.load_index();
         Ok(db)
     }
 
-    // fn get_active_file() -> DataFile {}
-
-    // fn load_index(&mut self) {
-    //     let mut iter = self.active_data_file.iterator();
-    //     let mut offset: u64 = 0;
-    //     loop {
-    //         let e = iter.next();
-    //         let entry = match e {
-    //             Ok(entry) => entry,
-    //             Err(_) => break,
-    //         };
-    //         self.indexes.insert(entry.key.clone(), offset);
-    //         offset += entry.size() as u64;
-    //     }
-    //     self.active_data_file.offset = offset;
-    // }
+    fn load_index(&mut self) {
+        for (_, files_map) in self.archived_files.iter_mut() {
+            let mut id_vec = files_map
+                .iter_mut()
+                .map(|(_id, _)| _id.clone())
+                .collect::<Vec<u32>>();
+            id_vec.sort();
+            for id in id_vec.iter() {
+                let data_file = files_map.get_mut(id).unwrap();
+                let mut iter = data_file.iterator();
+                let mut offset: u64 = 0;
+                loop {
+                    let e = iter.next();
+                    let entry = match e {
+                        Ok(entry) => entry,
+                        Err(_) => break,
+                    };
+                    self.indexes.insert(entry.key.clone(), offset);
+                    offset += entry.size() as u64;
+                }
+            }
+        }
+        for (_, file) in self.active_file_map.iter_mut() {
+            let mut iter = file.iterator();
+            let mut offset: u64 = 0;
+            loop {
+                let e = iter.next();
+                let entry = match e {
+                    Ok(entry) => entry,
+                    Err(_) => break,
+                };
+                self.indexes.insert(entry.key.clone(), offset);
+                offset += entry.size() as u64;
+            }
+            file.offset = offset;
+        }
+    }
 
     fn load_file() {}
 
@@ -130,7 +157,6 @@ impl DB {
             .ok_or(Error::from(ErrorKind::Interrupted))?;
         if active_data_file.offset + sz > self.options.file_size {
             active_data_file.sync()?;
-            //self.active_data_file.close();
         }
         let offset = active_data_file.put(e)?;
         Ok(offset)
@@ -156,12 +182,30 @@ mod tests {
     fn test_put() {
         let c = Options::default();
         let mut d = DB::open("./db", c).unwrap();
-        d.put("a".as_bytes(), "aaabbbcccccc".as_bytes()).unwrap();
+        d.put("a".as_bytes(), "aaabbbccccccfffffff".as_bytes())
+            .unwrap();
         let value = d.read("a".as_bytes()).unwrap().value;
-        println!("{:?}", value);
+        println!("{:?}", String::from_utf8(value).unwrap());
+    }
+    #[test]
+    fn test_read() {
+        let c = Options::default();
+        let mut d = DB::open("./db", c).unwrap();
+        let value = d.read("a".as_bytes()).unwrap().value;
+        println!("{:?}", String::from_utf8(value).unwrap());
     }
     #[test]
     fn test_build_data_file() {
-        build_data_file("./db");
+        let (active_file_map, archived_files) = build_data_file("./db").unwrap();
+        for (k, v) in active_file_map {
+            println!("{:?},{:?}", k, v.file_id);
+        }
+
+        for (k, v) in archived_files {
+            println!("{:?}", k);
+            for (k1, v1) in v {
+                println!("{:?},{:?}", k1, v1.file_id);
+            }
+        }
     }
 }

@@ -1,5 +1,6 @@
 pub mod datafile;
 pub mod db;
 pub mod error;
+mod r#macro;
 pub mod option;
-pub mod util;
+mod util;

@@ -1,6 +1,7 @@
 use crate::util::binary;
 //use crate::util::binary::BigEndian;
 use crate::error::IoResult;
+use crate::option::DataType;
 use crc::crc32;
 use crc::Hasher32;
 use std::fs::File;
@@ -15,7 +16,7 @@ use std::path::Path;
 
 macro_rules! data_file_format {
     ($ext:expr,$file_id:expr) => {
-        format!("{:09}.data.{}", $file_id, $ext)
+        format!("{:09}.data.{:?}", $file_id, $ext).to_lowercase()
     };
 }
 
@@ -26,7 +27,7 @@ const ENTRY_HEADER_SIZE: usize = 20;
 pub struct DataFile {
     file: File,
     pub offset: u64,
-    file_id: u32,
+    pub file_id: u32,
 }
 
 pub struct DataFileIterator<'a> {
@@ -88,9 +89,9 @@ impl Entry {
 }
 
 impl DataFile {
-    pub fn new(dir_path: &str, file_id: u32) -> IoResult<DataFile> {
+    pub fn new(dir_path: &str, file_id: u32, data_type: DataType) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
-        let data_file_name = path.join(data_file_format!("str", file_id));
+        let data_file_name = path.join(data_file_format!(data_type, file_id));
         let f = OpenOptions::new()
             .read(true)
             .append(true)
@@ -145,7 +146,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_put_and_read() {
-        let mut _db = DataFile::new("./dbfile", 0).unwrap();
+        let mut _db = DataFile::new("./dbfile", 0, DataType::String).unwrap();
         let mut e = Entry {
             timestamp: 123456,
             key: "zhangsan".as_bytes().to_vec(),
