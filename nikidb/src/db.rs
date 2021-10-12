@@ -6,6 +6,8 @@ use crate::option::Options;
 use crate::option::{DATA_TYPE_HASH, DATA_TYPE_LIST, DATA_TYPE_SET, DATA_TYPE_STR, DATA_TYPE_ZSET};
 use crate::result_skip_fail;
 use crate::util::time;
+use std::borrow::ToOwned;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Error;
@@ -148,17 +150,35 @@ impl DB {
         self.indexes.insert(e.key, offset);
         Ok(offset)
     }
-
     fn store(&mut self, e: &Entry) -> IoResult<u64> {
         let sz = e.size() as u64;
-        let active_data_file = self
-            .active_file_map
+        let active_file_id: u32;
+        {
+            let active_data_file = self
+                .active_file_map
+                .get_mut(&DataType::String)
+                .ok_or(Error::from(ErrorKind::Interrupted))?;
+            if active_data_file.offset + sz < self.options.file_size {
+                let offset = active_data_file.put(e)?;
+                return Ok(offset);
+            }
+            active_data_file.sync()?;
+            active_file_id = active_data_file.file_id;
+        }
+        let files_map = self
+            .archived_files
             .get_mut(&DataType::String)
             .ok_or(Error::from(ErrorKind::Interrupted))?;
-        if active_data_file.offset + sz > self.options.file_size {
-            active_data_file.sync()?;
-        }
+        let data_file = self
+            .active_file_map
+            .remove(&DataType::String)
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        files_map.insert(active_file_id, data_file);
+        let active_file_id = active_file_id + 1;
+        let mut active_data_file = DataFile::new("", active_file_id, DataType::String)?;
         let offset = active_data_file.put(e)?;
+        self.active_file_map
+            .insert(DataType::String, active_data_file);
         Ok(offset)
     }
 

@@ -1,3 +1,4 @@
+#![feature(nll)]
 pub mod datafile;
 pub mod db;
 pub mod error;
