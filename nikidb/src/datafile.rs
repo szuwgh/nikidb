@@ -55,10 +55,10 @@ pub struct Entry {
 
 impl Entry {
     fn decode(buf: &[u8]) -> Self {
-        let crc = binary::BigEndian::read_u32(&buf[0..4]);
-        let ks = binary::BigEndian::read_u32(&buf[4..8]);
-        let vs = binary::BigEndian::read_u32(&buf[8..12]);
-        let timestamp = binary::BigEndian::read_u64(&buf[12..20]);
+        let crc = binary::big_endian::read_u32(&buf[0..4]);
+        let ks = binary::big_endian::read_u32(&buf[4..8]);
+        let vs = binary::big_endian::read_u32(&buf[8..12]);
+        let timestamp = binary::big_endian::read_u64(&buf[12..20]);
         Self {
             timestamp: timestamp,
             key: vec![0; ks as usize],
@@ -73,10 +73,10 @@ impl Entry {
         let vs = self.value.len();
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
         digest.write(self.value.as_slice());
-        binary::BigEndian::put_uint32(&mut buf[0..4], digest.sum32());
-        binary::BigEndian::put_uint32(&mut buf[4..8], ks as u32);
-        binary::BigEndian::put_uint32(&mut buf[8..12], vs as u32);
-        binary::BigEndian::put_uint64(&mut buf[12..20], self.timestamp);
+        binary::big_endian::put_uint32(&mut buf[0..4], digest.sum32());
+        binary::big_endian::put_uint32(&mut buf[4..8], ks as u32);
+        binary::big_endian::put_uint32(&mut buf[8..12], vs as u32);
+        binary::big_endian::put_uint64(&mut buf[12..20], self.timestamp);
         buf[ENTRY_HEADER_SIZE..ENTRY_HEADER_SIZE + ks].clone_from_slice(self.key.as_slice());
         buf[ENTRY_HEADER_SIZE + ks..ENTRY_HEADER_SIZE + ks + vs]
             .clone_from_slice(self.value.as_slice());
@@ -98,9 +98,10 @@ impl DataFile {
             .write(true)
             .create(true)
             .open(data_file_name)?;
+        let file_size = f.metadata()?.len();
         Ok(Self {
             file: f,
-            offset: 0,
+            offset: file_size,
             file_id: file_id,
         })
     }

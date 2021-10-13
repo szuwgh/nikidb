@@ -1,7 +1,7 @@
 #![feature(nll)]
-pub mod datafile;
+mod datafile;
 pub mod db;
-pub mod error;
+mod error;
 mod r#macro;
 pub mod option;
 mod util;

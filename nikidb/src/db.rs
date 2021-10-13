@@ -6,8 +6,6 @@ use crate::option::Options;
 use crate::option::{DATA_TYPE_HASH, DATA_TYPE_LIST, DATA_TYPE_SET, DATA_TYPE_STR, DATA_TYPE_ZSET};
 use crate::result_skip_fail;
 use crate::util::time;
-use std::borrow::ToOwned;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Error;
@@ -83,8 +81,12 @@ fn build_data_file(
 }
 
 impl DB {
-    pub fn open(dir_path: &str, options: Options) -> IoResult<DB> {
+    pub fn open(options: Options) -> IoResult<DB> {
         //create database dir
+        let dir_path = options
+            .data_dir
+            .to_str()
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
         fs::create_dir_all(dir_path).map_err(|err| Error::new(ErrorKind::Interrupted, err))?;
         let (active_files, archived_files) = build_data_file(dir_path)?;
         let mut db = DB {
@@ -135,10 +137,6 @@ impl DB {
         }
     }
 
-    fn load_file() {}
-
-    fn check_kv(&mut self, key: &[u8], value: &[u8]) {}
-
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
         let e = Entry {
             timestamp: time::get_time_unix_nano() as u64,
@@ -150,6 +148,7 @@ impl DB {
         self.indexes.insert(e.key, offset);
         Ok(offset)
     }
+    //
     fn store(&mut self, e: &Entry) -> IoResult<u64> {
         let sz = e.size() as u64;
         let active_file_id: u32;
@@ -175,7 +174,12 @@ impl DB {
             .ok_or(Error::from(ErrorKind::Interrupted))?;
         files_map.insert(active_file_id, data_file);
         let active_file_id = active_file_id + 1;
-        let mut active_data_file = DataFile::new("", active_file_id, DataType::String)?;
+        let dir_path = self
+            .options
+            .data_dir
+            .to_str()
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        let mut active_data_file = DataFile::new(dir_path, active_file_id, DataType::String)?;
         let offset = active_data_file.put(e)?;
         self.active_file_map
             .insert(DataType::String, active_data_file);
@@ -201,7 +205,7 @@ mod tests {
     #[test]
     fn test_put() {
         let c = Options::default();
-        let mut d = DB::open("./db", c).unwrap();
+        let mut d = DB::open(c).unwrap();
         d.put("a".as_bytes(), "aaabbbccccccfffffff".as_bytes())
             .unwrap();
         let value = d.read("a".as_bytes()).unwrap().value;
@@ -210,7 +214,7 @@ mod tests {
     #[test]
     fn test_read() {
         let c = Options::default();
-        let mut d = DB::open("./db", c).unwrap();
+        let mut d = DB::open(c).unwrap();
         let value = d.read("a".as_bytes()).unwrap().value;
         println!("{:?}", String::from_utf8(value).unwrap());
     }

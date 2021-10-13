@@ -4,7 +4,7 @@ macro_rules! result_skip_fail {
     ($res:expr) => {
         match $res {
             Ok(val) => val,
-            Err(e) => {
+            Err(_) => {
                 // warn!("An error: {}; skipped.", e);
                 continue;
             }

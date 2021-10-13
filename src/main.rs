@@ -1,15 +1,31 @@
-use std::collections::HashMap;
-
-struct A {
-    map2: HashMap<u32, HashMap<u32, u32>>,
-}
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
+mod cli;
+use cli::Client;
 
 fn main() {
-    let mut m: HashMap<u32, &str> = HashMap::new();
-    m.insert(1, "a");
-    m.insert(2, "a");
-    m.insert(3, "a");
-    m.iter_mut()
-        .map(|(_id, _)| _id.clone())
-        .collect::<Vec<u32>>();
+    // `()` can be used when no completer is required
+    let mut rl = Editor::<()>::new();
+    loop {
+        let readline = rl.readline("nikidb> ");
+        match readline {
+            Ok(line) => {
+                // rl.add_history_entry(line.as_str());
+                println!("Line: {}", line);
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("CTRL-D");
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
+        }
+    }
+    // rl.save_history("history.txt").unwrap();
 }

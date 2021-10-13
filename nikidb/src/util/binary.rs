@@ -1,4 +1,4 @@
-pub const MSB: u8 = 0b1000_0000;
+const MSB: u8 = 0b1000_0000;
 /// All bits except for the most significant. Can be used as bitmask to drop the most-signficant
 /// bit using `&` (binary-and).
 const DROP_MSB: u8 = 0b0111_1111;
@@ -30,7 +30,7 @@ pub fn put_varuint64(dst: &mut [u8], n: u64) -> usize {
     i + 1
 }
 
-pub mod BigEndian {
+pub mod big_endian {
     pub fn put_uint32(dst: &mut [u8], n: u32) {
         let _ = dst[3];
         dst[0] = (n >> 24) as u8;
@@ -123,17 +123,17 @@ mod tests {
     #[test]
     fn test_put_u32() {
         let mut buf: [u8; 10] = [0; 10];
-        BigEndian::put_uint32(&mut buf[..], 365897485);
+        big_endian::put_uint32(&mut buf[..], 365897485);
         println!("{:?}", buf);
-        let v = BigEndian::read_u32(&buf[..]);
+        let v = big_endian::read_u32(&buf[..]);
         println!("{}", v);
     }
     #[test]
     fn test_put_u64() {
         let mut buf: [u8; 10] = [0; 10];
-        BigEndian::put_uint64(&mut buf[..], 1365897485);
+        big_endian::put_uint64(&mut buf[..], 1365897485);
         println!("{:?}", buf);
-        let v = BigEndian::read_u64(&buf[..]);
+        let v = big_endian::read_u64(&buf[..]);
         println!("{}", v);
     }
 }
