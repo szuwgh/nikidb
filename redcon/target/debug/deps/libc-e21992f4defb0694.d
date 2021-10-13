@@ -1,0 +1,12 @@
+D:\rsproject\photon\redcon\target\debug\deps\libc-e21992f4defb0694.rmeta: C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\lib.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\macros.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\fixed_width_ints.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\mod.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\mod.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\x86_64.rs
+
+D:\rsproject\photon\redcon\target\debug\deps\liblibc-e21992f4defb0694.rlib: C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\lib.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\macros.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\fixed_width_ints.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\mod.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\mod.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\x86_64.rs
+
+D:\rsproject\photon\redcon\target\debug\deps\libc-e21992f4defb0694.d: C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\lib.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\macros.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\fixed_width_ints.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\mod.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\mod.rs C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\x86_64.rs
+
+C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\lib.rs:
+C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\macros.rs:
+C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\fixed_width_ints.rs:
+C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\mod.rs:
+C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\mod.rs:
+C:\Users\wgh\.cargo\registry\src\github.com-1ecc6299db9ec823\libc-0.2.103\src\windows\msvc\x86_64.rs:

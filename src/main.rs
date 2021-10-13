@@ -1,7 +1,6 @@
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 mod cli;
-use cli::Client;
 
 fn main() {
     // `()` can be used when no completer is required
