@@ -200,6 +200,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "redcon"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "tokio",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -219,6 +227,7 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "nikidb",
+ "redcon",
  "tokio",
 ]
 
