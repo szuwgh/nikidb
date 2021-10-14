@@ -13,7 +13,7 @@ async fn main() {
             Ok(line) => {
                 // rl.add_history_entry(line.as_str());
                 println!("Line: {}", line);
-                cli.write(line.as_bytes());
+                cli.write(line.as_bytes()).await;
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");

@@ -35,9 +35,10 @@ impl Server {
         loop {
             let socket = self.accept().await?;
             let con = Connection::new(socket);
+            let mut handler = Handler { connection: con };
             tokio::spawn(async move {
                 // Process the connection. If an error is encountered, log it.
-                handle(con).await;
+                handler.run().await;
             });
         }
     }
@@ -68,17 +69,16 @@ impl Server {
     }
 }
 
-struct handler {}
+struct Handler {
+    connection: Connection,
+}
 
-async fn handle(mut con: Connection) {
-    // loop {
-    //     tokio::select! {
-    //         res = con.) => res?,
-    //         // _ = self.shutdown.recv() => {
-    //         //     // If a shutdown signal is received, return from `run`.
-    //         //     // This will result in the task terminating.
-    //         //     //return Ok(());
-    //         // }
-    //     };
-    // }
+impl Handler {
+    async fn run(&mut self) -> crate::Result<()> {
+        loop {
+            tokio::select! {
+                res = self.connection.read() => res?,
+            };
+        }
+    }
 }
