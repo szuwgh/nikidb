@@ -77,7 +77,17 @@ impl Handler {
     async fn run(&mut self) -> crate::Result<()> {
         loop {
             tokio::select! {
-                res = self.connection.read() => res?,
+                res = self.connection.read() =>{
+
+                    match res{
+                        Ok(Some(_e)) => {
+                            self.connection.write(&_e).await?;
+                        },
+                        Ok(None)=>{},
+                        Err(_)=>{},
+                    };
+
+                },
             };
         }
     }

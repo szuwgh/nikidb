@@ -1,4 +1,5 @@
 use crate::connection::Connection;
+use bytes::{Buf, BytesMut};
 use tokio::net::{TcpStream, ToSocketAddrs};
 pub struct Client {
     connection: Connection,
@@ -19,7 +20,9 @@ pub async fn connect<T: ToSocketAddrs>(addr: T) -> crate::Result<Client> {
 }
 
 impl Client {
-    pub async fn write(&mut self, src: &[u8]) {
-        self.connection.write(src).await;
+    pub async fn write(&mut self, src: &[u8]) -> crate::Result<Option<BytesMut>> {
+        self.connection.write(src).await?;
+        let res = self.connection.read().await?;
+        Ok(res)
     }
 }

@@ -12,8 +12,13 @@ async fn main() {
         match readline {
             Ok(line) => {
                 // rl.add_history_entry(line.as_str());
-                println!("Line: {}", line);
-                cli.write(line.as_bytes()).await;
+                // println!("Line: {}", line);
+                let res = cli.write(line.as_bytes()).await;
+                match res {
+                    Ok(Some(e)) => println!("{:?}", e),
+                    Ok(None) => break,
+                    Err(_) => break,
+                }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");

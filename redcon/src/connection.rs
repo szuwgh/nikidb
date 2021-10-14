@@ -15,8 +15,9 @@ impl Connection {
         }
     }
 
-    pub async fn read(&mut self) -> crate::Result<Option<()>> {
+    pub async fn read(&mut self) -> crate::Result<Option<BytesMut>> {
         loop {
+            self.buffer.clear();
             if 0 == self.stream.read_buf(&mut self.buffer).await? {
                 if self.buffer.is_empty() {
                     return Ok(None);
@@ -24,7 +25,8 @@ impl Connection {
                     return Err("connection reset by peer".into());
                 }
             }
-            println!("{:?}", self.buffer);
+            return Ok(Some(self.buffer.clone()));
+            // println!("{:?}", self.buffer);
         }
     }
 
