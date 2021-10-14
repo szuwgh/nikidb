@@ -3,3 +3,4 @@
 pkg/
 server/target/
 nikidb/target/
+target/
