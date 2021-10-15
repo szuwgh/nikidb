@@ -1,4 +1,4 @@
-use crate::{Connection, Db, Frame, Parse};
+use crate::{Connection, Frame, Parse};
 
 use bytes::Bytes;
 use tracing::{debug, instrument};
@@ -60,25 +60,25 @@ impl Get {
     ///
     /// The response is written to `dst`. This is called by the server in order
     /// to execute a received command.
-    #[instrument(skip(self, db, dst))]
-    pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
-        // Get the value from the shared database state
-        let response = if let Some(value) = db.get(&self.key) {
-            // If a value is present, it is written to the client in "bulk"
-            // format.
-            Frame::Bulk(value)
-        } else {
-            // If there is no value, `Null` is written.
-            Frame::Null
-        };
+    // #[instrument(skip(self, db, dst))]
+    // pub(crate) async fn apply(self, db: &Db, dst: &mut Connection) -> crate::Result<()> {
+    //     // Get the value from the shared database state
+    //     let response = if let Some(value) = db.get(&self.key) {
+    //         // If a value is present, it is written to the client in "bulk"
+    //         // format.
+    //         Frame::Bulk(value)
+    //     } else {
+    //         // If there is no value, `Null` is written.
+    //         Frame::Null
+    //     };
 
-        debug!(?response);
+    //     debug!(?response);
 
-        // Write the response back to the client
-        dst.write_frame(&response).await?;
+    //     // Write the response back to the client
+    //     dst.write_frame(&response).await?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Converts the command into an equivalent `Frame`.
     ///

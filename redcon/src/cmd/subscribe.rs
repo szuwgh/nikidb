@@ -1,5 +1,5 @@
 use crate::cmd::{Parse, ParseError, Unknown};
-use crate::{Command, Connection, Db, Frame, Shutdown};
+use crate::{Command, Connection, Frame, Shutdown};
 
 use bytes::Bytes;
 use std::pin::Pin;
@@ -99,61 +99,61 @@ impl Subscribe {
     /// are updated accordingly.
     ///
     /// [here]: https://redis.io/topics/pubsub
-    pub(crate) async fn apply(
-        mut self,
-        db: &Db,
-        dst: &mut Connection,
-        shutdown: &mut Shutdown,
-    ) -> crate::Result<()> {
-        // Each individual channel subscription is handled using a
-        // `sync::broadcast` channel. Messages are then fanned out to all
-        // clients currently subscribed to the channels.
-        //
-        // An individual client may subscribe to multiple channels and may
-        // dynamically add and remove channels from its subscription set. To
-        // handle this, a `StreamMap` is used to track active subscriptions. The
-        // `StreamMap` merges messages from individual broadcast channels as
-        // they are received.
-        let mut subscriptions = StreamMap::new();
+    // pub(crate) async fn apply(
+    //     mut self,
+    //     db: &Db,
+    //     dst: &mut Connection,
+    //     shutdown: &mut Shutdown,
+    // ) -> crate::Result<()> {
+    //     // Each individual channel subscription is handled using a
+    //     // `sync::broadcast` channel. Messages are then fanned out to all
+    //     // clients currently subscribed to the channels.
+    //     //
+    //     // An individual client may subscribe to multiple channels and may
+    //     // dynamically add and remove channels from its subscription set. To
+    //     // handle this, a `StreamMap` is used to track active subscriptions. The
+    //     // `StreamMap` merges messages from individual broadcast channels as
+    //     // they are received.
+    //     let mut subscriptions = StreamMap::new();
 
-        loop {
-            // `self.channels` is used to track additional channels to subscribe
-            // to. When new `SUBSCRIBE` commands are received during the
-            // execution of `apply`, the new channels are pushed onto this vec.
-            for channel_name in self.channels.drain(..) {
-                subscribe_to_channel(channel_name, &mut subscriptions, db, dst).await?;
-            }
+    //     loop {
+    //         // `self.channels` is used to track additional channels to subscribe
+    //         // to. When new `SUBSCRIBE` commands are received during the
+    //         // execution of `apply`, the new channels are pushed onto this vec.
+    //         for channel_name in self.channels.drain(..) {
+    //             subscribe_to_channel(channel_name, &mut subscriptions, db, dst).await?;
+    //         }
 
-            // Wait for one of the following to happen:
-            //
-            // - Receive a message from one of the subscribed channels.
-            // - Receive a subscribe or unsubscribe command from the client.
-            // - A server shutdown signal.
-            select! {
-                // Receive messages from subscribed channels
-                Some((channel_name, msg)) = subscriptions.next() => {
-                    dst.write_frame(&make_message_frame(channel_name, msg)).await?;
-                }
-                res = dst.read_frame() => {
-                    let frame = match res? {
-                        Some(frame) => frame,
-                        // This happens if the remote client has disconnected.
-                        None => return Ok(())
-                    };
+    //         // Wait for one of the following to happen:
+    //         //
+    //         // - Receive a message from one of the subscribed channels.
+    //         // - Receive a subscribe or unsubscribe command from the client.
+    //         // - A server shutdown signal.
+    //         select! {
+    //             // Receive messages from subscribed channels
+    //             Some((channel_name, msg)) = subscriptions.next() => {
+    //                 dst.write_frame(&make_message_frame(channel_name, msg)).await?;
+    //             }
+    //             res = dst.read_frame() => {
+    //                 let frame = match res? {
+    //                     Some(frame) => frame,
+    //                     // This happens if the remote client has disconnected.
+    //                     None => return Ok(())
+    //                 };
 
-                    handle_command(
-                        frame,
-                        &mut self.channels,
-                        &mut subscriptions,
-                        dst,
-                    ).await?;
-                }
-                _ = shutdown.recv() => {
-                    return Ok(());
-                }
-            };
-        }
-    }
+    //                 handle_command(
+    //                     frame,
+    //                     &mut self.channels,
+    //                     &mut subscriptions,
+    //                     dst,
+    //                 ).await?;
+    //             }
+    //             _ = shutdown.recv() => {
+    //                 return Ok(());
+    //             }
+    //         };
+    //     }
+    // }
 
     /// Converts the command into an equivalent `Frame`.
     ///
@@ -169,35 +169,34 @@ impl Subscribe {
     }
 }
 
-async fn subscribe_to_channel(
-    channel_name: String,
-    subscriptions: &mut StreamMap<String, Messages>,
-    db: &Db,
-    dst: &mut Connection,
-) -> crate::Result<()> {
-    let mut rx = db.subscribe(channel_name.clone());
+// async fn subscribe_to_channel(
+//     channel_name: String,
+//     subscriptions: &mut StreamMap<String, Messages>,
+//     dst: &mut Connection,
+// ) -> crate::Result<()> {
+//     let mut rx = db.subscribe(channel_name.clone());
 
-    // Subscribe to the channel.
-    let rx = Box::pin(async_stream::stream! {
-        loop {
-            match rx.recv().await {
-                Ok(msg) => yield msg,
-                // If we lagged in consuming messages, just resume.
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(_) => break,
-            }
-        }
-    });
+//     // Subscribe to the channel.
+//     let rx = Box::pin(async_stream::stream! {
+//         loop {
+//             match rx.recv().await {
+//                 Ok(msg) => yield msg,
+//                 // If we lagged in consuming messages, just resume.
+//                 Err(broadcast::error::RecvError::Lagged(_)) => {}
+//                 Err(_) => break,
+//             }
+//         }
+//     });
 
-    // Track subscription in this client's subscription set.
-    subscriptions.insert(channel_name.clone(), rx);
+//     // Track subscription in this client's subscription set.
+//     subscriptions.insert(channel_name.clone(), rx);
 
-    // Respond with the successful subscription
-    let response = make_subscribe_frame(channel_name, subscriptions.len());
-    dst.write_frame(&response).await?;
+//     // Respond with the successful subscription
+//     let response = make_subscribe_frame(channel_name, subscriptions.len());
+//     dst.write_frame(&response).await?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 /// Handle a command received while inside `Subscribe::apply`. Only subscribe
 /// and unsubscribe commands are permitted in this context.
@@ -241,7 +240,7 @@ async fn handle_command(
         }
         command => {
             let cmd = Unknown::new(command.get_name());
-            cmd.apply(dst).await?;
+            //cmd.apply(dst).await?;
         }
     }
     Ok(())
