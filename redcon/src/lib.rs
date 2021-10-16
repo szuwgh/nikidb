@@ -29,9 +29,9 @@ pub mod blocking_client;
 pub mod client;
 
 pub mod cmd;
+pub mod connection;
 pub use cmd::Command;
 
-mod connection;
 pub use connection::Connection;
 
 pub mod frame;

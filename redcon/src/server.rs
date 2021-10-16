@@ -12,7 +12,9 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
-trait HandlerFn: FnMut(&Connection, Command) + Clone + Send + Future {}
+pub trait HandlerFn: FnMut(&Connection, Command) + Clone + Send + 'static {}
+
+impl<T> HandlerFn for T where T: FnMut(&Connection, Command) + Clone + Send + 'static {}
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
@@ -74,7 +76,7 @@ where
 /// Per-connection handler. Reads requests from `connection` and applies the
 /// commands to `db`.
 #[derive(Debug)]
-struct Handler<'a, F>
+struct Handler<F>
 where
     F: HandlerFn,
 {
@@ -113,7 +115,7 @@ where
 
     /// Not used directly. Instead, when `Handler` is dropped...?
     _shutdown_complete: mpsc::Sender<()>,
-    handler_fn: &'a mut F,
+    handler_fn: F,
 }
 
 /// Maximum number of concurrent connections the redis server will accept.
@@ -285,7 +287,8 @@ where
                 // Notifies the receiver half once all clones are
                 // dropped.
                 _shutdown_complete: self.shutdown_complete_tx.clone(),
-                handler_fn: &mut self.handler_fn,
+
+                handler_fn: self.handler_fn.clone(),
             };
 
             // Spawn a new task to process the connections. Tokio tasks are like
@@ -331,7 +334,7 @@ where
     }
 }
 
-impl<'a, F> Handler<'a, F>
+impl<F> Handler<F>
 where
     F: HandlerFn,
 {
@@ -409,7 +412,7 @@ where
     }
 }
 
-impl<'a, F> Drop for Handler<'a, F>
+impl<F> Drop for Handler<F>
 where
     F: HandlerFn,
 {
