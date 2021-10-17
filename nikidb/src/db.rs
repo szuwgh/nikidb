@@ -14,12 +14,13 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct DBHandler {
-    pub db: Arc<DB>,
+    pub db: Arc<Mutex<DB>>,
 }
 
 impl DBHandler {
     pub fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-        self.db.put(key, value)
+        let db = self.db.lock().unwrap()
+        db.put(key, value)
     }
     pub fn get(&self, key: &[u8]) -> IoResult<Entry> {
         self.db.read(key)
