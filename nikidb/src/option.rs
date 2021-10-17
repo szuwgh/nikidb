@@ -25,6 +25,7 @@ pub const DATA_TYPE_HASH: &str = "hash";
 pub const DATA_TYPE_SET: &str = "set";
 pub const DATA_TYPE_ZSET: &str = "zset";
 
+#[derive(Clone)]
 pub struct Options {
     pub file_size: u64,
     pub data_dir: PathBuf,

@@ -10,6 +10,21 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Error;
 use std::io::ErrorKind;
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+pub struct DBHandler {
+    pub db: Arc<DB>,
+}
+
+impl DBHandler {
+    pub fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+        self.db.put(key, value)
+    }
+    pub fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        self.db.read(key)
+    }
+}
 
 pub struct DB {
     // active file:
@@ -137,7 +152,7 @@ impl DB {
         }
     }
 
-    pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+    pub fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
         let e = Entry {
             timestamp: time::get_time_unix_nano() as u64,
             key: key.to_vec(),
@@ -149,7 +164,7 @@ impl DB {
         Ok(offset)
     }
     //
-    fn store(&mut self, e: &Entry) -> IoResult<u64> {
+    fn store(&self, e: &Entry) -> IoResult<u64> {
         let sz = e.size() as u64;
         let active_file_id: u32;
         {
@@ -186,7 +201,7 @@ impl DB {
         Ok(offset)
     }
 
-    pub fn read(&mut self, key: &[u8]) -> IoResult<Entry> {
+    pub fn read(&self, key: &[u8]) -> IoResult<Entry> {
         let offset = self
             .indexes
             .get(&key.to_vec())
