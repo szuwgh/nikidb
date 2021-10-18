@@ -4,3 +4,5 @@ pkg/
 server/target/
 nikidb/target/
 target/
+.data
+*.data.*

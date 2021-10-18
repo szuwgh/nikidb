@@ -13,17 +13,45 @@ use std::io::ErrorKind;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
+pub struct DbDropGuard {
+    db: DBHandler,
+}
+
+impl DbDropGuard {
+    /// Create a new `DbHolder`, wrapping a `Db` instance. When this is dropped
+    /// the `Db`'s purge task will be shut down.
+    pub fn new(options: Options) -> DbDropGuard {
+        DbDropGuard {
+            db: DBHandler::new(options),
+        }
+    }
+
+    /// Get the shared database. Internally, this is an
+    /// `Arc`, so a clone only increments the ref count.
+    pub fn db(&self) -> DBHandler {
+        self.db.clone()
+    }
+}
+
+#[derive(Clone)]
 pub struct DBHandler {
     pub db: Arc<Mutex<DB>>,
 }
 
 impl DBHandler {
+    pub fn new(options: Options) -> DBHandler {
+        let db = Arc::new(Mutex::new(DB::open(options).unwrap()));
+        DBHandler { db }
+    }
     pub fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-        let db = self.db.lock().unwrap()
+        let mut db = self.db.lock().unwrap();
         db.put(key, value)
+        //  drop(db);
     }
     pub fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        self.db.read(key)
+        let mut db = self.db.lock().unwrap();
+        db.read(key)
+        // drop(db);
     }
 }
 
@@ -153,7 +181,7 @@ impl DB {
         }
     }
 
-    pub fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+    pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
         let e = Entry {
             timestamp: time::get_time_unix_nano() as u64,
             key: key.to_vec(),
@@ -165,7 +193,7 @@ impl DB {
         Ok(offset)
     }
     //
-    fn store(&self, e: &Entry) -> IoResult<u64> {
+    fn store(&mut self, e: &Entry) -> IoResult<u64> {
         let sz = e.size() as u64;
         let active_file_id: u32;
         {
@@ -202,7 +230,7 @@ impl DB {
         Ok(offset)
     }
 
-    pub fn read(&self, key: &[u8]) -> IoResult<Entry> {
+    pub fn read(&mut self, key: &[u8]) -> IoResult<Entry> {
         let offset = self
             .indexes
             .get(&key.to_vec())

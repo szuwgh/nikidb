@@ -34,13 +34,22 @@ async fn main() {
                     Some(cmd) => match cmd {
                         Command::Get { key } => {
                             println!("{}", key);
-                            cli.get(key.as_str()).await;
+                            let res = cli.get(key.as_str()).await;
+                            match res {
+                                Ok(Some(e)) => {
+                                    println!("{:?}", e);
+                                }
+                                Ok(None) => {}
+                                Err(_) => {}
+                            }
                         }
                         Command::Set {
                             key,
                             value,
                             expires: Some(expires),
-                        } => {}
+                        } => {
+                            cli.set(key.as_str(), value).await;
+                        }
                         Command::Set {
                             key,
                             value,

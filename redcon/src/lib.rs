@@ -24,7 +24,7 @@
 //! * `frame`: represents a single Redis protocol frame. A frame is used as an
 //!   intermediate representation between a "command" and the byte
 //!   representation.
-
+#![feature(async_closure)]
 pub mod blocking_client;
 pub mod client;
 

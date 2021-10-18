@@ -12,16 +12,26 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
-pub trait HandlerFn: FnMut(&Connection, Command) + Clone + Send + 'static {}
+pub trait HandlerFn<T>: Fn(&mut Connection, Command) -> T
+where
+    T: Future<Output = ()> + Send + 'static,
+{
+}
 
-impl<T> HandlerFn for T where T: FnMut(&Connection, Command) + Clone + Send + 'static {}
+impl<T, K> HandlerFn<T> for K
+where
+    K: Fn(&mut Connection, Command) -> T,
+    T: Future<Output = ()> + Send + 'static,
+{
+}
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
 #[derive(Debug)]
-struct Listener<F>
+struct Listener<F, T>
 where
-    F: HandlerFn,
+    T: Future<Output = ()> + Send + 'static,
+    F: HandlerFn<T> + Clone + Send + 'static,
 {
     /// Shared database handle.
     ///
@@ -76,9 +86,10 @@ where
 /// Per-connection handler. Reads requests from `connection` and applies the
 /// commands to `db`.
 #[derive(Debug)]
-struct Handler<F>
+struct Handler<F, T>
 where
-    F: HandlerFn,
+    F: HandlerFn<T> + Clone + Send + 'static,
+    T: Future<Output = ()> + Send + 'static,
 {
     /// Shared database handle.
     ///
@@ -141,9 +152,10 @@ const MAX_CONNECTIONS: usize = 250;
 ///
 /// `tokio::signal::ctrl_c()` can be used as the `shutdown` argument. This will
 /// listen for a SIGINT signal.
-pub async fn run<F>(listener: TcpListener, shutdown: impl Future, func: F)
+pub async fn run<F, T>(listener: TcpListener, shutdown: impl Future, func: F)
 where
-    F: HandlerFn,
+    T: Future<Output = ()> + Send + 'static,
+    F: HandlerFn<T> + Clone + Send + 'static,
 {
     // When the provided `shutdown` future completes, we must send a shutdown
     // message to all active connections. We use a broadcast channel for this
@@ -224,9 +236,10 @@ where
     let _ = shutdown_complete_rx.recv().await;
 }
 
-impl<F> Listener<F>
+impl<F, T> Listener<F, T>
 where
-    F: HandlerFn,
+    T: Future<Output = ()> + Send + 'static,
+    F: HandlerFn<T> + Clone + Send + 'static,
 {
     /// Run the server
     ///
@@ -334,9 +347,10 @@ where
     }
 }
 
-impl<F> Handler<F>
+impl<F, T> Handler<F, T>
 where
-    F: HandlerFn,
+    T: Future<Output = ()> + Send + 'static,
+    F: HandlerFn<T> + Clone + Send + 'static,
 {
     /// Process a single connection.
     ///
@@ -353,7 +367,8 @@ where
     // #[instrument(skip(self))]
     async fn run(&mut self) -> crate::Result<()>
     where
-        F: HandlerFn,
+        T: Future<Output = ()> + Send + 'static,
+        F: HandlerFn<T> + Clone + Send + 'static,
     {
         // As long as the shutdown signal has not been received, try to read a
         // new request frame.
@@ -394,7 +409,7 @@ where
             // println!("{:?}", cmd);
             debug!(?cmd);
 
-            (self.handler_fn)(&self.connection, cmd);
+            (self.handler_fn)(&mut self.connection, cmd).await;
             //self.handler_fn(self.connection, cmd);
             // Perform the work needed to apply the command. This may mutate the
             // database state as a result.
@@ -412,9 +427,10 @@ where
     }
 }
 
-impl<F> Drop for Handler<F>
+impl<F, T> Drop for Handler<F, T>
 where
-    F: HandlerFn,
+    T: Future<Output = ()> + Send + 'static,
+    F: HandlerFn<T> + Clone + Send + 'static,
 {
     fn drop(&mut self) {
         // Add a permit back to the semaphore.
