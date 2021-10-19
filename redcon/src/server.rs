@@ -13,32 +13,72 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
-trait AsyncFn {
-    fn call(&self, conn: &mut Connection, cmd: Command) -> BoxFuture<'static, ()>;
+pub fn service_fn<F, S>(f: F) -> ServiceFn<F>
+where
+    F: FnMut(Connection, Command) -> S,
+    S: Future,
+{
+    ServiceFn { f }
+}
+
+/// Service returned by [`service_fn`]
+pub struct ServiceFn<F> {
+    f: F,
+}
+
+pub trait Service<Connection, Command> {
+    type Future: Future<Output = ()>;
+
+    fn call(&mut self, conn: Connection, cmd: Command) -> Self::Future;
+}
+
+impl<Ret, F> Service<Connection, Command> for ServiceFn<F>
+where
+    F: FnMut(Connection, Command) -> Ret,
+    Ret: Future<Output = ()>,
+{
+    type Future = Ret;
+
+    fn call(&mut self, conn: Connection, cmd: Command) -> Self::Future {
+        (self.f)(conn, cmd)
+    }
+}
+
+impl<F> Clone for ServiceFn<F>
+where
+    F: Clone,
+{
+    fn clone(&self) -> Self {
+        ServiceFn { f: self.f.clone() }
+    }
+}
+
+pub trait AsyncFn {
+    fn call<'a>(&self, conn: &'a mut Connection, cmd: Command) -> BoxFuture<'static, ()>;
 }
 
 impl<T, F> AsyncFn for T
 where
-    T: Fn(u8) -> F,
-    F: Future<Output = ()> + 'static,
+    T: Fn(&mut Connection, Command) -> F,
+    F: Future<Output = ()> + Send + 'static,
 {
-    fn call(&self, conn: &mut Connection, cmd: Command) -> BoxFuture<'static, ()> {
-        Box::pin(self((conn, cmd)))
+    fn call<'a>(&self, conn: &'a mut Connection, cmd: Command) -> BoxFuture<'static, ()> {
+        Box::pin(self(conn, cmd))
     }
 }
 
-pub trait HandlerFn<T>: Fn(&mut Connection, Command) -> T
-where
-    T: Future<Output = ()> + Send + 'static,
-{
-}
+// pub trait HandlerFn<T>: Fn(&mut Connection, Command) -> T
+// where
+//     T: Future<Output = ()> + Send + 'static,
+// {
+// }
 
-impl<T, K> HandlerFn<T> for K
-where
-    K: Fn(&mut Connection, Command) -> T,
-    T: Future<Output = ()> + Send + 'static,
-{
-}
+// impl<T, K> HandlerFn<T> for K
+// where
+//     K: Fn(&mut Connection, Command) -> T,
+//     T: Future<Output = ()> + Send + 'static,
+// {
+//}
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.
@@ -90,7 +130,7 @@ struct Listener {
     shutdown_complete_rx: mpsc::Receiver<()>,
     shutdown_complete_tx: mpsc::Sender<()>,
 
-    handler_fn: Box<dyn AsyncFn>,
+    handler_fn: Arc<Box<dyn AsyncFn + Send + Sync>>,
 }
 
 /// Per-connection handler. Reads requests from `connection` and applies the
@@ -131,7 +171,7 @@ struct Handler {
 
     /// Not used directly. Instead, when `Handler` is dropped...?
     _shutdown_complete: mpsc::Sender<()>,
-    handler_fn: Box<dyn AsyncFn>,
+    handler_fn: Arc<Box<dyn AsyncFn + Send + Sync>>,
 }
 
 /// Maximum number of concurrent connections the redis server will accept.
@@ -157,7 +197,11 @@ const MAX_CONNECTIONS: usize = 250;
 //
 /// `tokio::signal::ctrl_c()` can be used as the `shutdown` argument. This will
 /// listen for a SIGINT signal.
-pub async fn run(listener: TcpListener, shutdown: impl Future, func: Box<dyn AsyncFn>) {
+pub async fn run(
+    listener: TcpListener,
+    shutdown: impl Future,
+    func: Arc<Box<dyn AsyncFn + Send + Sync>>,
+) {
     // When the provided `shutdown` future completes, we must send a shutdown
     // message to all active connections. We use a broadcast channel for this
     // purpose. The call below ignores the receiver of the broadcast pair, and when
@@ -357,7 +401,7 @@ impl Handler {
     ///
     /// When the shutdown signal is received, the connection is processed until
     /// it reaches a safe state, at which point it is terminated.
-    // #[instrument(skip(self))]
+    #[instrument(skip(self))]
     async fn run(&mut self) -> crate::Result<()> {
         // As long as the shutdown signal has not been received, try to read a
         // new request frame.
@@ -397,7 +441,6 @@ impl Handler {
             // as key-value pairs.
             // println!("{:?}", cmd);
             debug!(?cmd);
-
             self.handler_fn.call(&mut self.connection, cmd).await;
             //self.handler_fn(self.connection, cmd);
             // Perform the work needed to apply the command. This may mutate the
