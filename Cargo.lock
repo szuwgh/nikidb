@@ -401,6 +401,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nikidb"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "redcon",
+ "rustyline",
+ "tokio",
+]
+
+[[package]]
 name = "nix"
 version = "0.22.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -480,16 +490,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "winapi",
-]
-
-[[package]]
-name = "photon"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "redcon",
- "rustyline",
- "tokio",
 ]
 
 [[package]]
