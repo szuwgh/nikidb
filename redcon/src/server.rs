@@ -13,72 +13,9 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{self, Duration};
 use tracing::{debug, error, info, instrument};
 
-pub fn service_fn<F, S>(f: F) -> ServiceFn<F>
-where
-    F: FnMut(Connection, Command) -> S,
-    S: Future,
-{
-    ServiceFn { f }
-}
-
-/// Service returned by [`service_fn`]
-pub struct ServiceFn<F> {
-    f: F,
-}
-
-pub trait Service<Connection, Command> {
-    type Future: Future<Output = ()>;
-
-    fn call(&mut self, conn: Connection, cmd: Command) -> Self::Future;
-}
-
-impl<Ret, F> Service<Connection, Command> for ServiceFn<F>
-where
-    F: FnMut(Connection, Command) -> Ret,
-    Ret: Future<Output = ()>,
-{
-    type Future = Ret;
-
-    fn call(&mut self, conn: Connection, cmd: Command) -> Self::Future {
-        (self.f)(conn, cmd)
-    }
-}
-
-impl<F> Clone for ServiceFn<F>
-where
-    F: Clone,
-{
-    fn clone(&self) -> Self {
-        ServiceFn { f: self.f.clone() }
-    }
-}
-
 pub trait AsyncFn {
-    fn call<'a>(&self, conn: &'a mut Connection, cmd: Command) -> BoxFuture<'static, ()>;
+    fn call<'a>(&'a self, conn: &'a mut Connection, cmd: Command) -> BoxFuture<'a, ()>;
 }
-
-impl<T, F> AsyncFn for T
-where
-    T: Fn(&mut Connection, Command) -> F,
-    F: Future<Output = ()> + Send + 'static,
-{
-    fn call<'a>(&self, conn: &'a mut Connection, cmd: Command) -> BoxFuture<'static, ()> {
-        Box::pin(self(conn, cmd))
-    }
-}
-
-// pub trait HandlerFn<T>: Fn(&mut Connection, Command) -> T
-// where
-//     T: Future<Output = ()> + Send + 'static,
-// {
-// }
-
-// impl<T, K> HandlerFn<T> for K
-// where
-//     K: Fn(&mut Connection, Command) -> T,
-//     T: Future<Output = ()> + Send + 'static,
-// {
-//}
 
 /// Server listener state. Created in the `run` call. It includes a `run` method
 /// which performs the TCP listening and initialization of per-connection state.

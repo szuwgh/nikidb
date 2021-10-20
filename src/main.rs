@@ -11,18 +11,17 @@ struct Cli {
 
 enum Command {
     /// Get the value of key.
-    Get { key: String },
+    Get {
+        key: String,
+    },
     Set {
         key: String,
         value: Bytes,
-        expires: Option<Duration>,
     },
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    // `()` can be used when no completer is required
-
     let mut cli = client::connect("127.0.0.1:6379").await.unwrap();
     let mut rl = Editor::<()>::new();
     loop {
@@ -33,11 +32,10 @@ async fn main() {
                 match command {
                     Some(cmd) => match cmd {
                         Command::Get { key } => {
-                            println!("{}", key);
                             let res = cli.get(key.as_str()).await;
                             match res {
                                 Ok(Some(e)) => {
-                                    println!("{:?}", e);
+                                    println!("{:?}", String::from_utf8_lossy(&e));
                                 }
                                 Ok(None) => {}
                                 Err(_) => {}
@@ -46,29 +44,21 @@ async fn main() {
                         Command::Set {
                             key,
                             value,
-                            expires: Some(expires),
+                            // expires: Some(expires),
                         } => {
-                            cli.set(key.as_str(), value).await;
-                        }
-                        Command::Set {
-                            key,
-                            value,
-                            expires: None,
-                        } => {
-                            println!("OK");
+                            let res = cli.set(key.as_str(), value).await;
+                            match res {
+                                Ok(()) => {
+                                    println!("ok");
+                                }
+                                Err(_) => {
+                                    println!("fail");
+                                }
+                            }
                         }
                     },
                     None => continue,
                 }
-                //  Cli::from_clap();
-                // rl.add_history_entry(line.as_str());
-                // println!("Line: {}", line);
-                // let res = cli.write(line.as_bytes()).await;
-                // match res {
-                //     Ok(Some(e)) => println!("{:?}", e),
-                //     Ok(None) => break,
-                //     Err(_) => break,
-                // }
             }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
@@ -93,6 +83,12 @@ fn parse_redir_command(cmd: String) -> Option<Command> {
         "get" => {
             return Some(Command::Get {
                 key: String::from(split_word[1]),
+            })
+        }
+        "set" => {
+            return Some(Command::Set {
+                key: String::from(split_word[1]),
+                value: Bytes::copy_from_slice(split_word[2].as_bytes()),
             })
         }
         _ => None,

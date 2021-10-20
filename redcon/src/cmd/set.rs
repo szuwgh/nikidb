@@ -24,9 +24,8 @@ pub struct Set {
 
     /// the value to be stored
     pub value: Bytes,
-
-    /// When to expire the key
-    pub expire: Option<Duration>,
+    // When to expire the key
+    // pub expire: Option<Duration>,
 }
 
 impl Set {
@@ -38,7 +37,7 @@ impl Set {
         Set {
             key: key.to_string(),
             value,
-            expire,
+            // expire,
         }
     }
 
@@ -53,9 +52,9 @@ impl Set {
     }
 
     /// Get the expire
-    pub fn expire(&self) -> Option<Duration> {
-        self.expire
-    }
+    // pub fn expire(&self) -> Option<Duration> {
+    //     self.expire
+    // }
 
     /// Parse a `Set` instance from a received frame.
     ///
@@ -117,7 +116,7 @@ impl Set {
             Err(err) => return Err(err.into()),
         }
 
-        Ok(Set { key, value, expire })
+        Ok(Set { key, value })
     }
 
     /// Apply the `Set` command to the specified `Db` instance.
@@ -146,16 +145,16 @@ impl Set {
         frame.push_bulk(Bytes::from("set".as_bytes()));
         frame.push_bulk(Bytes::from(self.key.into_bytes()));
         frame.push_bulk(self.value);
-        if let Some(ms) = self.expire {
-            // Expirations in Redis procotol can be specified in two ways
-            // 1. SET key value EX seconds
-            // 2. SET key value PX milliseconds
-            // We the second option because it allows greater precision and
-            // src/bin/cli.rs parses the expiration argument as milliseconds
-            // in duration_from_ms_str()
-            frame.push_bulk(Bytes::from("px".as_bytes()));
-            frame.push_int(ms.as_millis() as u64);
-        }
+        // if let Some(ms) = self.expire {
+        //     // Expirations in Redis procotol can be specified in two ways
+        //     // 1. SET key value EX seconds
+        //     // 2. SET key value PX milliseconds
+        //     // We the second option because it allows greater precision and
+        //     // src/bin/cli.rs parses the expiration argument as milliseconds
+        //     // in duration_from_ms_str()
+        //     frame.push_bulk(Bytes::from("px".as_bytes()));
+        //     frame.push_int(ms.as_millis() as u64);
+        // }
         frame
     }
 }
