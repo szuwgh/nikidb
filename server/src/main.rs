@@ -10,6 +10,7 @@ use redcon::server;
 use redcon::server::AsyncFn;
 use redcon::Result;
 use std::cell::RefCell;
+use std::fs;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -18,11 +19,18 @@ use tokio::signal;
 
 #[tokio::main]
 async fn main() {
+    print_banner();
     let c = Options::default();
     let db_holder = DbDropGuard::new(c);
     let handler = Handler { db_holder };
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
+    println!("nikidb is running, ready to accept connections.");
     server::run(listener, signal::ctrl_c(), Arc::new(Box::new(handler))).await;
+}
+
+fn print_banner() {
+    let contents = fs::read_to_string("./resource/banner.txt").unwrap();
+    println!("{}", contents);
 }
 
 #[derive(Clone)]
