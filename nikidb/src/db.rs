@@ -18,16 +18,11 @@ pub struct DbDropGuard {
 }
 
 impl DbDropGuard {
-    /// Create a new `DbHolder`, wrapping a `Db` instance. When this is dropped
-    /// the `Db`'s purge task will be shut down.
     pub fn new(options: Options) -> DbDropGuard {
         DbDropGuard {
             db: DBHandler::new(options),
         }
     }
-
-    /// Get the shared database. Internally, this is an
-    /// `Arc`, so a clone only increments the ref count.
     pub fn db(&self) -> DBHandler {
         self.db.clone()
     }
@@ -56,10 +51,12 @@ impl DBHandler {
 }
 
 pub struct DB {
-    // active file:
-    active_file_map: HashMap<DataType, DataFile>,
-    //archived_files
-    archived_files: HashMap<DataType, HashMap<u32, DataFile>>,
+    active: ActiveLevel,
+
+    archived: ArchivedLevel,
+
+    merged: MergeLevel,
+
     //memory index message
     indexes: HashMap<Vec<u8>, u64>,
     //db config
@@ -74,20 +71,32 @@ struct ActiveLevel {
     indexes: HashMap<Vec<u8>, u64>,
 }
 
+impl ActiveLevel {
+    fn put() {}
+
+    fn get() {}
+}
+
 struct ArchivedLevel {
     archived_files: HashMap<DataType, HashMap<u32, DataFile>>,
     //memory index message
     indexes: HashMap<Vec<u8>, u64>,
 }
 
+impl ArchivedLevel {
+    fn get() {}
+}
+
 struct MergeLevel {
-    dataFile: DataFile,
+    dataFile: HashMap<DataType, HashMap<u32, DataFile>>,
     indexes: HashMap<Vec<u8>, u64>,
 }
 
-struct SSTableLevel {
-    
+impl MergeLevel {
+    fn get() {}
 }
+
+struct SSTableLevel {}
 
 fn build_data_file(
     dir_path: &str,
