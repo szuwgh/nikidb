@@ -66,6 +66,29 @@ pub struct DB {
     options: Options,
 }
 
+struct ActiveLevel {
+    active_file_map: HashMap<DataType, DataFile>,
+    //archived_files
+    archived_files: HashMap<DataType, HashMap<u32, DataFile>>,
+    //memory index message
+    indexes: HashMap<Vec<u8>, u64>,
+}
+
+struct ArchivedLevel {
+    archived_files: HashMap<DataType, HashMap<u32, DataFile>>,
+    //memory index message
+    indexes: HashMap<Vec<u8>, u64>,
+}
+
+struct MergeLevel {
+    dataFile: DataFile,
+    indexes: HashMap<Vec<u8>, u64>,
+}
+
+struct SSTableLevel {
+    
+}
+
 fn build_data_file(
     dir_path: &str,
 ) -> IoResult<(
@@ -241,6 +264,8 @@ impl DB {
             .ok_or(Error::from(ErrorKind::Interrupted))?;
         active_data_file.read(*offset)
     }
+
+    pub fn merge() {}
 }
 
 #[cfg(test)]
