@@ -4,6 +4,7 @@ use crate::error::IoResult;
 use crate::option::DataType;
 use crc::crc32;
 use crc::Hasher32;
+use memmap::MmapMut;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Error;
@@ -26,6 +27,7 @@ const ENTRY_HEADER_SIZE: usize = 20;
 
 pub struct DataFile {
     file: File,
+    mmap: MmapMut,
     pub offset: u64,
     pub file_id: u32,
 }
@@ -89,7 +91,7 @@ impl Entry {
 }
 
 impl DataFile {
-    pub fn new(dir_path: &str, file_id: u32, data_type: DataType) -> IoResult<DataFile> {
+    pub fn new(dir_path: &str, size: u64, file_id: u32, data_type: DataType) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
         let data_file_name = path.join(data_file_format!(data_type, file_id));
         let f = OpenOptions::new()
@@ -98,9 +100,16 @@ impl DataFile {
             .write(true)
             .create(true)
             .open(data_file_name)?;
+        f.set_len(size)?;
         let file_size = f.metadata()?.len();
+        let mmap = unsafe { MmapMut::map_mut(&f).expect("Error creating memory map") };
+        // f.seek(SeekFrom::Start(size)).unwrap();
+        // f.write_all(&[0]).unwrap();
+        // f.seek(SeekFrom::Start(0)).unwrap();
+
         Ok(Self {
             file: f,
+            mmap: mmap,
             offset: file_size,
             file_id: file_id,
         })
@@ -120,9 +129,12 @@ impl DataFile {
         Ok(())
     }
 
-    pub fn read(&mut self, offset: u64) -> IoResult<Entry> {
-        self.file.seek(SeekFrom::Start(offset))?;
+    pub fn get(&mut self, offset: u64) -> IoResult<Entry> {
+        // self.file.seek(SeekFrom::Start(offset))?;
+        let offset = offset as usize;
+        let a = &self.mmap[offset..offset + ENTRY_HEADER_SIZE];
         self.next()
+        // Ok(Entry {})
     }
 
     pub fn next(&mut self) -> IoResult<Entry> {

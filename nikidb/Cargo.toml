@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 integer-encoding = "3.0.2"  
 crc = "1.8"
+memmap = "0.7"

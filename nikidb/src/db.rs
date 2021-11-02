@@ -106,7 +106,7 @@ struct ActiveUnit {
 
 impl ActiveUnit {
     fn new(file_size: u64, data_dir: String) -> IoResult<ActiveUnit> {
-        let (active_file, archived_files) = build_data_file(&data_dir)?;
+        let (active_file, archived_files) = build_data_file(&data_dir, file_size)?;
         let mut active_unit = ActiveUnit {
             active_file: active_file,
             archived_files: archived_files,
@@ -191,8 +191,12 @@ impl ActiveUnit {
         //     .data_dir
         //     .to_str()
         //     .ok_or(Error::from(ErrorKind::Interrupted))?;
-        let mut new_active_data_file =
-            DataFile::new(&self.data_dir, active_file_id, DataType::String)?;
+        let mut new_active_data_file = DataFile::new(
+            &self.data_dir,
+            self.file_size,
+            active_file_id,
+            DataType::String,
+        )?;
         let offset = new_active_data_file.put(e)?;
 
         let old_active_data_file = mem::replace(&mut self.active_file, new_active_data_file);
@@ -210,7 +214,7 @@ impl ActiveUnit {
             .indexes
             .get(&key.to_vec())
             .ok_or(Error::from(ErrorKind::Interrupted))?;
-        self.active_file.read(*offset)
+        self.active_file.get(*offset)
     }
 }
 
@@ -235,7 +239,7 @@ impl MergeUnit {
 
 struct SSTableUnit {}
 
-fn build_data_file(dir_path: &str) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
+fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
     let dir = fs::read_dir(dir_path)?;
 
     let names = dir
@@ -254,7 +258,7 @@ fn build_data_file(dir_path: &str) -> IoResult<(DataFile, HashMap<u32, DataFile>
         .collect::<Vec<String>>();
     let mut files_map: HashMap<u32, DataFile> = HashMap::new();
     if names.len() == 0 {
-        let active_file = DataFile::new(dir_path, 0, DataType::String)?;
+        let active_file = DataFile::new(dir_path, size, 0, DataType::String)?;
         return Ok((active_file, files_map));
     }
     let mut files: Vec<u32> = Vec::new();
@@ -275,11 +279,11 @@ fn build_data_file(dir_path: &str) -> IoResult<(DataFile, HashMap<u32, DataFile>
         files.push(id);
     }
 
-    let active_file = DataFile::new(dir_path, files[files.len() - 1], DataType::String)?;
+    let active_file = DataFile::new(dir_path, size, files[files.len() - 1], DataType::String)?;
     for i in 0..files.len() - 1 {
         files_map.insert(
             files[i],
-            DataFile::new(dir_path, files[i], DataType::String)?,
+            DataFile::new(dir_path, size, files[i], DataType::String)?,
         );
     }
 
