@@ -35,14 +35,14 @@ impl DbDropGuard {
 
 #[derive(Clone)]
 pub struct DB {
+    active_level: Arc<RwLock<ActiveUnit>>,
+
     levels: Arc<RwLock<Levels>>,
     //db config
     options: Options,
 }
 
 struct Levels {
-    active_level: Arc<RwLock<ActiveUnit>>,
-
     archived_level: Vec<ArchivedUnit>,
 
     merged_level: Vec<MergeUnit>,
@@ -51,33 +51,32 @@ struct Levels {
 impl Levels {
     fn new(file_size: u64, dir_path: String) -> IoResult<Levels> {
         let levels = Levels {
-            active_level: Arc::new(RwLock::new(ActiveUnit::new(file_size, dir_path)?)),
             archived_level: Vec::new(),
             merged_level: Vec::new(),
         };
         Ok(levels)
     }
 
-    fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-        let mut active = self.active_level.write().unwrap();
-        active.put(key, value)
-    }
+    // fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+    //     let mut active = self.active_level.write().unwrap();
+    //     active.put(key, value)
+    // }
 
-    fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        let active = self.active_level.read().unwrap();
-        active.get(key)
-    }
+    // fn get(&self, key: &[u8]) -> IoResult<Entry> {
+    //     let active = self.active_level.read().unwrap();
+    //     active.get(key)
+    // }
 
-    pub fn move_active_to_archived(&mut self) {
-        let mut active = self.active_level.write().unwrap();
-        match &active.froze_archived_files {
-            Some(v) => {
-                self.archived_level.push(v);
-                active.froze_archived_files = None;
-            }
-            None => return,
-        };
-    }
+    // pub fn move_active_to_archived(&mut self) {
+    //     let mut active = self.active_level.write().unwrap();
+    //     match &active.froze_archived_files {
+    //         Some(v) => {
+    //             self.archived_level.push(v);
+    //             active.froze_archived_files = None;
+    //         }
+    //         None => return,
+    //     };
+    // }
 }
 
 struct ActiveUnit {
@@ -282,6 +281,7 @@ impl DB {
             .to_str()
             .ok_or(Error::from(ErrorKind::Interrupted))?;
         let mut db = DB {
+            active_level: Arc::new(RwLock::new(ActiveUnit::new(file_size, dir_path)?)),
             levels: Arc::new(RwLock::new(Levels::new(
                 options.file_size,
                 data_dir.to_owned(),
@@ -300,13 +300,15 @@ impl DB {
     }
 
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-        let levels = self.levels.read().unwrap();
-        levels.put(key, value)
+        let active = self.active_level.write().unwrap();
+        active.put(key, value)
     }
 
     pub fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        let levels = self.levels.read().unwrap();
-        levels.get(key)
+        {
+            let active = self.active_level.read().unwrap();
+            active.get(key)
+        }
     }
 }
 
