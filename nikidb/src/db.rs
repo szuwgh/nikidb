@@ -11,7 +11,9 @@ use std::fs;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::mem;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
 
 struct IndexEntry {}
 
@@ -56,7 +58,7 @@ impl Levels {
         Ok(levels)
     }
 
-    fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+    fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
         let mut active = self.active_level.write().unwrap();
         active.put(key, value)
     }
@@ -64,6 +66,17 @@ impl Levels {
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
         let active = self.active_level.read().unwrap();
         active.get(key)
+    }
+
+    pub fn move_active_to_archived(&mut self) {
+        let mut active = self.active_level.write().unwrap();
+        match &active.froze_archived_files {
+            Some(v) => {
+                self.archived_level.push(v);
+                active.froze_archived_files = None;
+            }
+            None => return,
+        };
     }
 }
 
@@ -273,14 +286,21 @@ impl DB {
                 options.file_size,
                 data_dir.to_owned(),
             )?)),
-
             options: options,
         };
+        let (tx, rx): (mpsc::Sender<i32>, mpsc::Receiver<i32>) = mpsc::channel();
+        let l = db.levels.clone();
+        thread::spawn(move || {
+            //let val = String::from("hi");
+            let received = rx.recv().unwrap();
+            let level = l.read().unwrap();
+            // level.merge();
+        });
         Ok(db)
     }
 
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-        let mut levels = self.levels.write().unwrap();
+        let levels = self.levels.read().unwrap();
         levels.put(key, value)
     }
 
@@ -288,8 +308,6 @@ impl DB {
         let levels = self.levels.read().unwrap();
         levels.get(key)
     }
-
-    pub fn merge() {}
 }
 
 #[cfg(test)]
