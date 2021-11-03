@@ -85,8 +85,8 @@ impl Levels {
         active.put(key, value)
     }
 
-    fn get(&mut self, key: &[u8]) -> IoResult<Entry> {
-        let mut active = self.active_level.write().unwrap();
+    fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        let active = self.active_level.read().unwrap();
         active.get(key)
     }
 }
@@ -99,7 +99,7 @@ struct ActiveUnit {
     //memory index message
     indexes: HashMap<Vec<u8>, u64>,
     //every one file size,
-    file_size: u64,
+    file_size: usize,
     //data dir path
     data_dir: String,
 }
@@ -111,7 +111,7 @@ impl ActiveUnit {
             active_file: active_file,
             archived_files: archived_files,
             indexes: HashMap::new(),
-            file_size: file_size,
+            file_size: file_size as usize,
             data_dir: data_dir,
         };
         active_unit.load_index();
@@ -141,15 +141,15 @@ impl ActiveUnit {
         }
 
         let mut iter = self.active_file.iterator();
-        let mut offset: u64 = 0;
+        let mut offset: usize = 0;
         loop {
             let e = iter.next();
             let entry = match e {
                 Ok(entry) => entry,
                 Err(_) => break,
             };
-            self.indexes.insert(entry.key.clone(), offset);
-            offset += entry.size() as u64;
+            self.indexes.insert(entry.key.clone(), offset as u64);
+            offset += entry.size();
         }
         self.active_file.offset = offset;
     }
@@ -167,7 +167,7 @@ impl ActiveUnit {
     }
 
     fn store(&mut self, e: &Entry) -> IoResult<u64> {
-        let sz = e.size() as u64;
+        let sz = e.size();
         let active_file_id: u32;
         {
             if self.active_file.offset + sz < self.file_size {
@@ -177,23 +177,10 @@ impl ActiveUnit {
             self.active_file.sync()?;
             active_file_id = self.active_file.file_id;
         }
-        // let files_map = self
-        //     .archived_files
-        //     .get_mut(&DataType::String)
-        //     .ok_or(Error::from(ErrorKind::Interrupted))?;
-        // let data_file = self
-        //     .active_file_map
-        //     .remove(&DataType::String)
-        //     .ok_or(Error::from(ErrorKind::Interrupted))?;
-        // let data_file = self.active_file;
         let active_file_id = active_file_id + 1;
-        // let dir_path = self
-        //     .data_dir
-        //     .to_str()
-        //     .ok_or(Error::from(ErrorKind::Interrupted))?;
         let mut new_active_data_file = DataFile::new(
             &self.data_dir,
-            self.file_size,
+            self.file_size as u64,
             active_file_id,
             DataType::String,
         )?;
@@ -203,13 +190,10 @@ impl ActiveUnit {
 
         self.archived_files
             .insert(active_file_id, old_active_data_file);
-        // self.active_file = active_data_file;
-        // self.active_file_map
-        //     .insert(DataType::String, active_data_file);
         Ok(offset)
     }
 
-    fn get(&mut self, key: &[u8]) -> IoResult<Entry> {
+    fn get(&self, key: &[u8]) -> IoResult<Entry> {
         let offset = self
             .indexes
             .get(&key.to_vec())
@@ -319,13 +303,13 @@ impl DB {
         Ok(db)
     }
 
-    fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+    pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
         let mut levels = self.levels.write().unwrap();
         levels.put(key, value)
     }
 
-    fn get(&mut self, key: &[u8]) -> IoResult<Entry> {
-        let mut levels = self.levels.write().unwrap();
+    pub fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        let levels = self.levels.read().unwrap();
         levels.get(key)
     }
 

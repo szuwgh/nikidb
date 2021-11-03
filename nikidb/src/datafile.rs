@@ -28,7 +28,7 @@ const ENTRY_HEADER_SIZE: usize = 20;
 pub struct DataFile {
     file: File,
     mmap: MmapMut,
-    pub offset: u64,
+    pub offset: usize,
     pub file_id: u32,
 }
 
@@ -56,17 +56,20 @@ pub struct Entry {
 }
 
 impl Entry {
-    fn decode(buf: &[u8]) -> Self {
+    fn decode(buf: &[u8]) -> Option<Entry> {
         let crc = binary::big_endian::read_u32(&buf[0..4]);
+        if crc == 0 {
+            return None;
+        }
         let ks = binary::big_endian::read_u32(&buf[4..8]);
         let vs = binary::big_endian::read_u32(&buf[8..12]);
         let timestamp = binary::big_endian::read_u64(&buf[12..20]);
-        Self {
+        Some(Entry {
             timestamp: timestamp,
             key: vec![0; ks as usize],
             value: vec![0; vs as usize],
             crc: crc,
-        }
+        })
     }
 
     fn encode(&self) -> Vec<u8> {
@@ -96,32 +99,28 @@ impl DataFile {
         let data_file_name = path.join(data_file_format!(data_type, file_id));
         let f = OpenOptions::new()
             .read(true)
-            .append(true)
             .write(true)
             .create(true)
             .open(data_file_name)?;
         f.set_len(size)?;
-        let file_size = f.metadata()?.len();
+        // let file_size = f.metadata()?.len();
         let mmap = unsafe { MmapMut::map_mut(&f).expect("Error creating memory map") };
-        // f.seek(SeekFrom::Start(size)).unwrap();
-        // f.write_all(&[0]).unwrap();
-        // f.seek(SeekFrom::Start(0)).unwrap();
-
         Ok(Self {
             file: f,
             mmap: mmap,
-            offset: file_size,
+            offset: 0,
             file_id: file_id,
         })
     }
 
     pub fn put(&mut self, e: &Entry) -> IoResult<u64> {
         let buf = e.encode();
-        self.file.write_all(buf.as_slice())?;
-        self.file.sync_all()?;
+        //self.file.write_all(buf.as_slice())?;
+        (&mut self.mmap[self.offset..]).write_all(buf.as_slice())?;
+        self.mmap.flush().expect("Error flushing memory map");
         let s = self.offset;
-        self.offset += buf.len() as u64;
-        Ok(s)
+        self.offset += buf.len();
+        Ok(s as u64)
     }
 
     pub fn sync(&mut self) -> IoResult<()> {
@@ -129,23 +128,39 @@ impl DataFile {
         Ok(())
     }
 
-    pub fn get(&mut self, offset: u64) -> IoResult<Entry> {
-        // self.file.seek(SeekFrom::Start(offset))?;
+    pub fn get(&self, offset: u64) -> IoResult<Entry> {
         let offset = offset as usize;
         let a = &self.mmap[offset..offset + ENTRY_HEADER_SIZE];
-        self.next()
-        // Ok(Entry {})
+        let mut e = Entry::decode(a).ok_or(Error::from(ErrorKind::Interrupted))?;
+        let offset = offset + ENTRY_HEADER_SIZE;
+        let koff = offset + e.key.len();
+        e.key.copy_from_slice(&self.mmap[offset..koff]);
+        let voff = koff + e.value.len();
+        e.value.copy_from_slice(&self.mmap[koff..voff]);
+
+        let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
+        digest.write(e.value.as_slice());
+
+        if e.crc != digest.sum32() {
+            return Err(Error::from(ErrorKind::Interrupted));
+        }
+        Ok(e)
     }
 
     pub fn next(&mut self) -> IoResult<Entry> {
-        let mut buf = vec![0; ENTRY_HEADER_SIZE];
-        let sz = self.file.read(&mut buf)?;
-        if sz == 0 {
+        let head = &self.mmap[self.offset..self.offset + ENTRY_HEADER_SIZE];
+        let mut e = Entry::decode(head).ok_or(Error::from(ErrorKind::Interrupted))?;
+        let offset = self.offset + ENTRY_HEADER_SIZE;
+        let koff = offset + e.key.len();
+        e.key.copy_from_slice(&self.mmap[offset..koff]);
+        let voff = koff + e.value.len();
+        e.value.copy_from_slice(&self.mmap[koff..voff]);
+        self.offset = self.offset + e.size();
+        let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
+        digest.write(e.value.as_slice());
+        if e.crc != digest.sum32() {
             return Err(Error::from(ErrorKind::Interrupted));
         }
-        let mut e = Entry::decode(&buf);
-        self.file.read(&mut e.key)?;
-        self.file.read(&mut e.value)?;
         Ok(e)
     }
 
@@ -159,7 +174,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_put_and_read() {
-        let mut _db = DataFile::new("./dbfile", 0, DataType::String).unwrap();
+        let mut _db = DataFile::new("./db", 1024, 0, DataType::String).unwrap();
         let mut e = Entry {
             timestamp: 123456,
             key: "zhangsan".as_bytes().to_vec(),
@@ -167,15 +182,30 @@ mod tests {
             crc: 0,
         };
         let sz = _db.put(&e).unwrap();
-        let _e = _db.read(0).unwrap();
-        println!("{:?}", _e);
+        let _e = _db.get(0).unwrap();
+        println!("{:?}", String::from_utf8(_e.value).unwrap());
         e.key = "lisi".as_bytes().to_vec();
         let sz2 = _db.put(&e).unwrap();
-        let _e = _db.read(sz2).unwrap();
-        println!("{:?}", _e);
+        let _e = _db.get(sz2).unwrap();
+        println!("{:?}", String::from_utf8(_e.value).unwrap());
     }
     #[test]
     fn test_data_file_format() {
         println!("{}", data_file_format!("str", 1));
+    }
+    #[test]
+    fn test_file_mmap() {
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open("./db/test.txt")
+            .unwrap();
+        let file_size = f.metadata().unwrap().len();
+        f.set_len(20).unwrap();
+        let mut mmap = unsafe { MmapMut::map_mut(&f).expect("Error creating memory map") };
+        println!("size is {}", file_size);
+        (&mut mmap[19..]).write_all("a".as_bytes());
+        println!("{:?}", &mmap[..]);
     }
 }
