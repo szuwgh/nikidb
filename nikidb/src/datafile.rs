@@ -23,7 +23,7 @@ macro_rules! data_file_format {
 
 //4 + 4 + 4 + 8
 //crc + key_len + value_len + timestamp
-const ENTRY_HEADER_SIZE: usize = 20;
+pub const ENTRY_HEADER_SIZE: usize = 20;
 
 pub struct DataFile {
     file: File,
@@ -148,14 +148,15 @@ impl DataFile {
     }
 
     pub fn next(&mut self) -> IoResult<Entry> {
-        let head = &self.mmap[self.offset..self.offset + ENTRY_HEADER_SIZE];
+        let hoff = self.offset + ENTRY_HEADER_SIZE;
+        let head = &self.mmap[self.offset..hoff];
         let mut e = Entry::decode(head).ok_or(Error::from(ErrorKind::Interrupted))?;
-        let offset = self.offset + ENTRY_HEADER_SIZE;
-        let koff = offset + e.key.len();
-        e.key.copy_from_slice(&self.mmap[offset..koff]);
+        // let offset = self.offset + ENTRY_HEADER_SIZE;
+        let koff = hoff + e.key.len();
+        e.key.copy_from_slice(&self.mmap[hoff..koff]);
         let voff = koff + e.value.len();
         e.value.copy_from_slice(&self.mmap[koff..voff]);
-        self.offset = self.offset + e.size();
+        self.offset = voff;
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
         digest.write(e.value.as_slice());
         if e.crc != digest.sum32() {

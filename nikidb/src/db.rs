@@ -1,3 +1,4 @@
+use crate::datafile;
 use crate::datafile::DataFile;
 use crate::datafile::Entry;
 use crate::error::IoResult;
@@ -15,7 +16,10 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
-struct IndexEntry {}
+struct IndexEntry {
+    offset: u64,
+    file_id: u32,
+}
 
 #[derive(Clone)]
 pub struct DbDropGuard {
@@ -57,26 +61,15 @@ impl Levels {
         Ok(levels)
     }
 
-    // fn put(&self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-    //     let mut active = self.active_level.write().unwrap();
-    //     active.put(key, value)
-    // }
-
-    // fn get(&self, key: &[u8]) -> IoResult<Entry> {
-    //     let active = self.active_level.read().unwrap();
-    //     active.get(key)
-    // }
-
-    // pub fn move_active_to_archived(&mut self) {
-    //     let mut active = self.active_level.write().unwrap();
-    //     match &active.froze_archived_files {
-    //         Some(v) => {
-    //             self.archived_level.push(v);
-    //             active.froze_archived_files = None;
-    //         }
-    //         None => return,
-    //     };
-    // }
+    fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        for x in self.archived_level.iter().rev() {
+            match x.get(key) {
+                Ok(v) => return Ok(v),
+                Err(_) => continue,
+            };
+        }
+        Err(Error::from(ErrorKind::Interrupted))
+    }
 }
 
 struct ActiveUnit {
@@ -85,17 +78,19 @@ struct ActiveUnit {
     //archived files
     archived_files: HashMap<u32, DataFile>,
     //memory index message
-    indexes: HashMap<Vec<u8>, u64>,
+    indexes: HashMap<Vec<u8>, IndexEntry>,
     //every one file size,
     file_size: usize,
     //data dir path
     data_dir: String,
     //froze archived files ,can't motify data
     froze_archived_files: Option<ArchivedUnit>,
+
+    sender: Mutex<mpsc::Sender<i32>>,
 }
 
 impl ActiveUnit {
-    fn new(file_size: u64, data_dir: String) -> IoResult<ActiveUnit> {
+    fn new(file_size: u64, data_dir: String, sender: mpsc::Sender<i32>) -> IoResult<ActiveUnit> {
         let (active_file, archived_files) = build_data_file(&data_dir, file_size)?;
         let mut active_unit = ActiveUnit {
             active_file: active_file,
@@ -104,6 +99,7 @@ impl ActiveUnit {
             file_size: file_size as usize,
             data_dir: data_dir,
             froze_archived_files: None,
+            sender: Mutex::new(sender),
         };
         active_unit.load_index();
         Ok(active_unit)
@@ -116,88 +112,134 @@ impl ActiveUnit {
             .map(|(_id, _)| _id.clone())
             .collect::<Vec<u32>>();
         id_vec.sort();
+        let mut file_id;
         for id in id_vec.iter() {
             let data_file = self.archived_files.get_mut(id).unwrap();
+            file_id = data_file.file_id;
+            println!("file_id is {}", file_id);
             let mut iter = data_file.iterator();
-            let mut offset: u64 = 0;
-            loop {
+            let mut offset: usize = 0;
+            while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
                 let e = iter.next();
                 let entry = match e {
                     Ok(entry) => entry,
                     Err(_) => break,
                 };
-                self.indexes.insert(entry.key.clone(), offset);
-                offset += entry.size() as u64;
+                self.indexes.insert(
+                    entry.key.clone(),
+                    IndexEntry {
+                        offset: offset as u64,
+                        file_id: file_id,
+                    },
+                );
+                offset += entry.size();
             }
         }
-
+        file_id = self.active_file.file_id;
+        println!("active_file_id is {}", file_id);
         let mut iter = self.active_file.iterator();
         let mut offset: usize = 0;
-        loop {
+        while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
             let e = iter.next();
             let entry = match e {
                 Ok(entry) => entry,
                 Err(_) => break,
             };
-            self.indexes.insert(entry.key.clone(), offset as u64);
+            self.indexes.insert(
+                entry.key.clone(),
+                IndexEntry {
+                    offset: offset as u64,
+                    file_id: file_id,
+                },
+            );
             offset += entry.size();
         }
         self.active_file.offset = offset;
     }
 
-    fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
+    fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<()> {
         let e = Entry {
             timestamp: time::get_time_unix_nano() as u64,
             key: key.to_vec(),
             value: value.to_vec(),
             crc: 0,
         };
-        let offset = self.store(&e)?;
-        self.indexes.insert(e.key, offset);
-        Ok(offset)
+        let index_entry = self.store(&e)?;
+        self.indexes.insert(e.key, index_entry);
+        Ok(())
     }
 
-    fn store(&mut self, e: &Entry) -> IoResult<u64> {
+    fn store(&mut self, e: &Entry) -> IoResult<IndexEntry> {
         let sz = e.size();
         let active_file_id: u32;
         {
             if self.active_file.offset + sz < self.file_size {
                 let offset = self.active_file.put(e)?;
-                return Ok(offset);
+                println!(
+                    "file_id is {}, offset is {}",
+                    self.active_file.file_id, offset
+                );
+                return Ok(IndexEntry {
+                    offset: offset,
+                    file_id: self.active_file.file_id,
+                });
             }
             self.active_file.sync()?;
             active_file_id = self.active_file.file_id;
         }
-        let active_file_id = active_file_id + 1;
+        let old_active_file_id = active_file_id;
+        let active_file_id = old_active_file_id + 1;
         let mut new_active_data_file = DataFile::new(
             &self.data_dir,
             self.file_size as u64,
             active_file_id,
             DataType::String,
         )?;
+
         let offset = new_active_data_file.put(e)?;
-
+        println!("file_id is {}, offset is {}", active_file_id, offset);
         let old_active_data_file = mem::replace(&mut self.active_file, new_active_data_file);
-
         self.archived_files
-            .insert(active_file_id, old_active_data_file);
-        if self.archived_files.len() > 10 {
+            .insert(old_active_file_id, old_active_data_file);
+        if self.archived_files.len() > 3 {
             self.froze_archived_files = Some(self.to_archived_unit());
+            let sender = self.sender.lock().unwrap();
+            sender.send(1);
         }
-        Ok(offset)
+
+        Ok(IndexEntry {
+            offset: offset,
+            file_id: active_file_id,
+        })
     }
 
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        let offset = self
+        let index_entry = self
             .indexes
             .get(&key.to_vec())
             .ok_or(Error::from(ErrorKind::Interrupted))?;
-        self.active_file.get(*offset)
+        if index_entry.file_id == self.active_file.file_id {
+            println!(
+                "active_file.file_id={},offset is {}",
+                index_entry.file_id, index_entry.offset
+            );
+            return self.active_file.get(index_entry.offset);
+        }
+        let file = self
+            .archived_files
+            .get(&index_entry.file_id)
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        println!(
+            "active_file.file_id={},offset is {}",
+            index_entry.file_id, index_entry.offset
+        );
+        file.get(index_entry.offset)
+        //self.active_file.get(*offset)
     }
 
     fn to_archived_unit(&mut self) -> ArchivedUnit {
         let new_archived_files: HashMap<u32, DataFile> = HashMap::new();
-        let new_indexes: HashMap<Vec<u8>, u64> = HashMap::new();
+        let new_indexes: HashMap<Vec<u8>, IndexEntry> = HashMap::new();
         let old_archived_files = mem::replace(&mut self.archived_files, new_archived_files);
         let old_indexes = mem::replace(&mut self.indexes, new_indexes);
         let archived_unit = ArchivedUnit {
@@ -211,16 +253,26 @@ impl ActiveUnit {
 struct ArchivedUnit {
     archived_files: HashMap<u32, DataFile>,
     //memory index message
-    indexes: HashMap<Vec<u8>, u64>,
+    indexes: HashMap<Vec<u8>, IndexEntry>,
 }
 
 impl ArchivedUnit {
-    fn get() {}
+    fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        let index_entry = self
+            .indexes
+            .get(&key.to_vec())
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        let file = self
+            .archived_files
+            .get(&index_entry.file_id)
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        file.get(index_entry.offset)
+    }
 }
 
 struct MergeUnit {
     archived_files: DataFile,
-    indexes: HashMap<Vec<u8>, u64>,
+    indexes: HashMap<Vec<u8>, IndexEntry>,
 }
 
 impl MergeUnit {
@@ -280,34 +332,55 @@ impl DB {
             .data_dir
             .to_str()
             .ok_or(Error::from(ErrorKind::Interrupted))?;
-        let mut db = DB {
-            active_level: Arc::new(RwLock::new(ActiveUnit::new(file_size, dir_path)?)),
+        let (tx, rx): (mpsc::Sender<i32>, mpsc::Receiver<i32>) = mpsc::channel();
+        let db = DB {
+            active_level: Arc::new(RwLock::new(ActiveUnit::new(
+                options.file_size,
+                dir_path.to_owned(),
+                tx,
+            )?)),
             levels: Arc::new(RwLock::new(Levels::new(
                 options.file_size,
                 data_dir.to_owned(),
             )?)),
             options: options,
         };
-        let (tx, rx): (mpsc::Sender<i32>, mpsc::Receiver<i32>) = mpsc::channel();
         let l = db.levels.clone();
-        thread::spawn(move || {
-            //let val = String::from("hi");
+        let a = db.active_level.clone();
+        thread::spawn(move || loop {
             let received = rx.recv().unwrap();
-            let level = l.read().unwrap();
-            // level.merge();
+            println!("merge starting");
+            {
+                let mut active = a.write().unwrap();
+                let old_froze_archived_files = mem::replace(&mut active.froze_archived_files, None);
+                match old_froze_archived_files {
+                    Some(v) => {
+                        let mut levels = l.write().unwrap();
+                        levels.archived_level.push(v);
+                    }
+                    None => continue,
+                };
+            }
         });
         Ok(db)
     }
 
-    pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<u64> {
-        let active = self.active_level.write().unwrap();
+    pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<()> {
+        let mut active = self.active_level.write().unwrap();
         active.put(key, value)
     }
 
     pub fn get(&self, key: &[u8]) -> IoResult<Entry> {
         {
             let active = self.active_level.read().unwrap();
-            active.get(key)
+            match active.get(key) {
+                Ok(v) => return Ok(v),
+                Err(_) => {}
+            }
+        }
+        {
+            let levels = self.levels.read().unwrap();
+            levels.get(key)
         }
     }
 }

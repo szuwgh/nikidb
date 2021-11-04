@@ -43,9 +43,16 @@ impl AsyncFn for Handler {
         Box::pin(async {
             match _cmd {
                 Command::Get(_cmd) => {
-                    let entry = self.db_holder.db().get(_cmd.key.as_bytes()).unwrap();
-                    let resp = Frame::Simple(String::from_utf8(entry.value).unwrap());
-                    _conn.write_frame(&resp).await;
+                    match self.db_holder.db().get(_cmd.key.as_bytes()) {
+                        Ok(entry) => {
+                            let resp = Frame::Simple(String::from_utf8(entry.value).unwrap());
+                            _conn.write_frame(&resp).await;
+                        }
+                        Err(_) => {
+                            let resp = Frame::Error("not found".to_owned());
+                            _conn.write_frame(&resp).await;
+                        }
+                    };
                 }
                 Command::Set(_cmd) => {
                     self.db_holder

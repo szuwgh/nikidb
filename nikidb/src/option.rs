@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-const DEFAULT_FILE_SIZE: u64 = 16 * 1024 * 1024;
+const DEFAULT_FILE_SIZE: u64 = 100; //16 * 1024 * 1024;
 
 macro_rules! data_type_enum {
     ($visibility:vis, $name:ident, $($member:tt),*) => {
