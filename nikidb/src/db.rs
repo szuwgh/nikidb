@@ -200,7 +200,9 @@ impl ActiveUnit {
         file.get(index_entry.offset)
     }
 
-    fn get_from_froze(&self, key: &[u8]) -> IoResult<Entry> {}
+    fn get_from_froze(&self, key: &[u8]) -> IoResult<Entry> {
+        self.froze_archived_files.ok_or(err: E)
+    }
 
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
         self.get_from_active(key)
