@@ -17,7 +17,7 @@ use std::path::Path;
 
 macro_rules! data_file_format {
     ($ext:expr,$file_id:expr) => {
-        format!("{:09}.data.{:?}", $file_id, $ext).to_lowercase()
+        format!("{:09}.data", $file_id).to_lowercase()
     };
 }
 

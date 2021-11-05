@@ -48,7 +48,6 @@ pub struct DB {
 
 struct Levels {
     archived_level: Vec<ArchivedUnit>,
-
     merged_level: Vec<MergeUnit>,
 }
 
@@ -87,10 +86,17 @@ struct ActiveUnit {
     froze_archived_files: Option<ArchivedUnit>,
 
     sender: Mutex<mpsc::Sender<i32>>,
+
+    archievd_limit_num: u32,
 }
 
 impl ActiveUnit {
-    fn new(file_size: u64, data_dir: String, sender: mpsc::Sender<i32>) -> IoResult<ActiveUnit> {
+    fn new(
+        file_size: u64,
+        data_dir: String,
+        sender: mpsc::Sender<i32>,
+        archievd_limit_num: u32,
+    ) -> IoResult<ActiveUnit> {
         let (active_file, archived_files) = build_data_file(&data_dir, file_size)?;
         let mut active_unit = ActiveUnit {
             active_file: active_file,
@@ -100,6 +106,7 @@ impl ActiveUnit {
             data_dir: data_dir,
             froze_archived_files: None,
             sender: Mutex::new(sender),
+            archievd_limit_num: archievd_limit_num,
         };
         active_unit.load_index();
         Ok(active_unit)
@@ -135,6 +142,7 @@ impl ActiveUnit {
                 offset += entry.size();
             }
         }
+
         file_id = self.active_file.file_id;
         println!("active_file_id is {}", file_id);
         let mut iter = self.active_file.iterator();
@@ -169,6 +177,35 @@ impl ActiveUnit {
         Ok(())
     }
 
+    fn get_from_active(&self, key: &[u8]) -> IoResult<Entry> {
+        let index_entry = self
+            .indexes
+            .get(&key.to_vec())
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        if index_entry.file_id == self.active_file.file_id {
+            println!(
+                "active_file.file_id={},offset is {}",
+                index_entry.file_id, index_entry.offset
+            );
+            return self.active_file.get(index_entry.offset);
+        }
+        let file = self
+            .archived_files
+            .get(&index_entry.file_id)
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        println!(
+            "active_file.file_id={},offset is {}",
+            index_entry.file_id, index_entry.offset
+        );
+        file.get(index_entry.offset)
+    }
+
+    fn get_from_froze(&self, key: &[u8]) -> IoResult<Entry> {}
+
+    fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        self.get_from_active(key)
+    }
+
     fn store(&mut self, e: &Entry) -> IoResult<IndexEntry> {
         let sz = e.size();
         let active_file_id: u32;
@@ -201,7 +238,7 @@ impl ActiveUnit {
         let old_active_data_file = mem::replace(&mut self.active_file, new_active_data_file);
         self.archived_files
             .insert(old_active_file_id, old_active_data_file);
-        if self.archived_files.len() > 3 {
+        if self.archived_files.len() >= self.archievd_limit_num as usize {
             self.froze_archived_files = Some(self.to_archived_unit());
             let sender = self.sender.lock().unwrap();
             sender.send(1);
@@ -211,30 +248,6 @@ impl ActiveUnit {
             offset: offset,
             file_id: active_file_id,
         })
-    }
-
-    fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        let index_entry = self
-            .indexes
-            .get(&key.to_vec())
-            .ok_or(Error::from(ErrorKind::Interrupted))?;
-        if index_entry.file_id == self.active_file.file_id {
-            println!(
-                "active_file.file_id={},offset is {}",
-                index_entry.file_id, index_entry.offset
-            );
-            return self.active_file.get(index_entry.offset);
-        }
-        let file = self
-            .archived_files
-            .get(&index_entry.file_id)
-            .ok_or(Error::from(ErrorKind::Interrupted))?;
-        println!(
-            "active_file.file_id={},offset is {}",
-            index_entry.file_id, index_entry.offset
-        );
-        file.get(index_entry.offset)
-        //self.active_file.get(*offset)
     }
 
     fn to_archived_unit(&mut self) -> ArchivedUnit {
@@ -281,46 +294,6 @@ impl MergeUnit {
 
 struct SSTableUnit {}
 
-fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
-    let dir = fs::read_dir(dir_path)?;
-
-    let names = dir
-        .filter_map(|entry| {
-            entry.ok().and_then(|e| {
-                e.path().file_name().and_then(|n| {
-                    n.to_str().and_then(|s| {
-                        if s.contains(".data") {
-                            return Some(String::from(s));
-                        }
-                        None
-                    })
-                })
-            })
-        })
-        .collect::<Vec<String>>();
-    let mut files_map: HashMap<u32, DataFile> = HashMap::new();
-    if names.len() == 0 {
-        let active_file = DataFile::new(dir_path, size, 0, DataType::String)?;
-        return Ok((active_file, files_map));
-    }
-    let mut files: Vec<u32> = Vec::new();
-    for n in names.iter() {
-        let split_name: Vec<&str> = n.split(".").collect();
-        let id = result_skip_fail!(split_name[0].parse::<u32>());
-        files.push(id);
-    }
-
-    let active_file = DataFile::new(dir_path, size, files[files.len() - 1], DataType::String)?;
-    for i in 0..files.len() - 1 {
-        files_map.insert(
-            files[i],
-            DataFile::new(dir_path, size, files[i], DataType::String)?,
-        );
-    }
-
-    Ok((active_file, files_map))
-}
-
 impl DB {
     pub fn open(options: Options) -> IoResult<DB> {
         let dir_path = options
@@ -338,6 +311,7 @@ impl DB {
                 options.file_size,
                 dir_path.to_owned(),
                 tx,
+                options.archievd_limit_num,
             )?)),
             levels: Arc::new(RwLock::new(Levels::new(
                 options.file_size,
@@ -350,21 +324,24 @@ impl DB {
         thread::spawn(move || loop {
             let received = rx.recv().unwrap();
             println!("merge starting");
+            //merge active to archievd
+            let merge_unit: MergeUnit;
             {
-                let mut active = a.write().unwrap();
-                let old_froze_archived_files = mem::replace(&mut active.froze_archived_files, None);
-                match old_froze_archived_files {
-                    Some(v) => {
-                        let mut levels = l.write().unwrap();
-                        levels.archived_level.push(v);
-                    }
-                    None => continue,
-                };
+                let active = a.try_read().unwrap();
+
+                // let old_froze_archived_files = mem::replace(&mut active.froze_archived_files, None);
+                // match old_froze_archived_files {
+                //     Some(v) => {
+                //         let mut levels = l.write().unwrap();
+                //         levels.archived_level.push(v);
+                //     }
+                //     None => continue,
+                // };
             }
+            {}
         });
         Ok(db)
     }
-
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<()> {
         let mut active = self.active_level.write().unwrap();
         active.put(key, value)
@@ -383,6 +360,47 @@ impl DB {
             levels.get(key)
         }
     }
+}
+
+fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
+    let dir = fs::read_dir(dir_path)?;
+
+    let names = dir
+        .filter_map(|entry| {
+            entry.ok().and_then(|e| {
+                e.path().file_name().and_then(|n| {
+                    n.to_str().and_then(|s| {
+                        if s.contains(".a") {
+                            return Some(String::from(s));
+                        }
+                        None
+                    })
+                })
+            })
+        })
+        .collect::<Vec<String>>();
+    let mut files_map: HashMap<u32, DataFile> = HashMap::new();
+    if names.len() == 0 {
+        let active_file = DataFile::new(dir_path, size, 0, DataType::String)?;
+        return Ok((active_file, files_map));
+    }
+    let mut files = names
+        .iter()
+        .filter_map(|n| {
+            let split_name: Vec<&str> = n.split(".").collect();
+            split_name[0].parse::<u32>().ok()
+        })
+        .collect::<Vec<u32>>();
+
+    let active_file = DataFile::new(dir_path, size, files[files.len() - 1], DataType::String)?;
+    for i in 0..files.len() - 1 {
+        files_map.insert(
+            files[i],
+            DataFile::new(dir_path, size, files[i], DataType::String)?,
+        );
+    }
+
+    Ok((active_file, files_map))
 }
 
 #[cfg(test)]

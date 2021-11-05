@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-const DEFAULT_FILE_SIZE: u64 = 100; //16 * 1024 * 1024;
+//default a data file size
+const DEFAULT_FILE_SIZE: u64 = 60; //16 * 1024 * 1024;
+const ARCHIEVD_LIMIT_NUM: u32 = 2;
 
 macro_rules! data_type_enum {
     ($visibility:vis, $name:ident, $($member:tt),*) => {
@@ -29,6 +31,7 @@ pub const DATA_TYPE_ZSET: &str = "zset";
 pub struct Options {
     pub file_size: u64,
     pub data_dir: PathBuf,
+    pub archievd_limit_num: u32,
 }
 
 impl Options {
@@ -36,6 +39,7 @@ impl Options {
         Self {
             file_size: DEFAULT_FILE_SIZE,
             data_dir: PathBuf::from("./db"),
+            archievd_limit_num: ARCHIEVD_LIMIT_NUM,
         }
     }
 }
