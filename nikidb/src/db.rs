@@ -108,7 +108,7 @@ impl ActiveUnit {
             sender: Mutex::new(sender),
             archievd_limit_num: archievd_limit_num,
         };
-        active_unit.load_index();
+        //  active_unit.load_index();
         Ok(active_unit)
     }
 
@@ -142,7 +142,11 @@ impl ActiveUnit {
                 offset += entry.size();
             }
         }
-
+        if id_vec.len() >= self.archievd_limit_num {
+            self.froze_archived_files = Some(self.to_archived_unit());
+            let sender = self.sender.lock().unwrap();
+            sender.send(1);
+        }
         file_id = self.active_file.file_id;
         println!("active_file_id is {}", file_id);
         let mut iter = self.active_file.iterator();
@@ -201,11 +205,24 @@ impl ActiveUnit {
     }
 
     fn get_from_froze(&self, key: &[u8]) -> IoResult<Entry> {
-        self.froze_archived_files.ok_or(err: E)
+        let froze_file = self
+            .froze_archived_files
+            .as_ref()
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        let index_entry = froze_file
+            .indexes
+            .get(&key.to_vec())
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        let file = froze_file
+            .archived_files
+            .get(&index_entry.file_id)
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        file.get(index_entry.offset)
     }
 
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
         self.get_from_active(key)
+            .or_else(|_| self.get_from_froze(key))
     }
 
     fn store(&mut self, e: &Entry) -> IoResult<IndexEntry> {
@@ -283,6 +300,8 @@ impl ArchivedUnit {
             .ok_or(Error::from(ErrorKind::Interrupted))?;
         file.get(index_entry.offset)
     }
+
+    fn merge() {}
 }
 
 struct MergeUnit {
