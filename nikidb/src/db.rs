@@ -4,7 +4,7 @@ use crate::datafile::Entry;
 use crate::error::IoResult;
 use crate::option::DataType;
 use crate::option::Options;
-use crate::option::{DATA_TYPE_HASH, DATA_TYPE_LIST, DATA_TYPE_SET, DATA_TYPE_STR, DATA_TYPE_ZSET};
+use crate::option::{DATA_TYPE_ACTIVE, DATA_TYPE_MEGRE, DATA_TYPE_SSTABLE};
 use crate::result_skip_fail;
 use crate::util::time;
 use std::collections::HashMap;
@@ -142,7 +142,7 @@ impl ActiveUnit {
                 offset += entry.size();
             }
         }
-        if id_vec.len() >= self.archievd_limit_num {
+        if id_vec.len() >= self.archievd_limit_num as usize {
             self.froze_archived_files = Some(self.to_archived_unit());
             let sender = self.sender.lock().unwrap();
             sender.send(1);
@@ -244,12 +244,12 @@ impl ActiveUnit {
             active_file_id = self.active_file.file_id;
         }
         let old_active_file_id = active_file_id;
-        let active_file_id = old_active_file_id + 1;
+        let active_file_id = file::next_sequence_file(self.data_dir);
         let mut new_active_data_file = DataFile::new(
             &self.data_dir,
             self.file_size as u64,
             active_file_id,
-            DataType::String,
+            DATA_TYPE_ACTIVE,
         )?;
 
         let offset = new_active_data_file.put(e)?;
@@ -301,7 +301,12 @@ impl ArchivedUnit {
         file.get(index_entry.offset)
     }
 
-    fn merge() {}
+    fn merge(&self) {
+        //-> MergeUnit
+        let new_indexs: HashMap<Vec<u8>, IndexEntry> = HashMap::new();
+
+        for (k, v) in self.indexes.iter() {}
+    }
 }
 
 struct MergeUnit {
@@ -391,7 +396,7 @@ fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32
             entry.ok().and_then(|e| {
                 e.path().file_name().and_then(|n| {
                     n.to_str().and_then(|s| {
-                        if s.contains(".a") {
+                        if s.contains(".data") {
                             return Some(String::from(s));
                         }
                         None
@@ -402,7 +407,7 @@ fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32
         .collect::<Vec<String>>();
     let mut files_map: HashMap<u32, DataFile> = HashMap::new();
     if names.len() == 0 {
-        let active_file = DataFile::new(dir_path, size, 0, DataType::String)?;
+        let active_file = DataFile::new(dir_path, size, 0, DATA_TYPE_ACTIVE)?;
         return Ok((active_file, files_map));
     }
     let mut files = names
@@ -413,11 +418,11 @@ fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32
         })
         .collect::<Vec<u32>>();
 
-    let active_file = DataFile::new(dir_path, size, files[files.len() - 1], DataType::String)?;
+    let active_file = DataFile::new(dir_path, size, files[files.len() - 1], DATA_TYPE_ACTIVE)?;
     for i in 0..files.len() - 1 {
         files_map.insert(
             files[i],
-            DataFile::new(dir_path, size, files[i], DataType::String)?,
+            DataFile::new(dir_path, size, files[i], DATA_TYPE_ACTIVE)?,
         );
     }
 

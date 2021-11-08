@@ -1,7 +1,7 @@
-use crate::util::binary;
-//use crate::util::binary::BigEndian;
+use crate::data_file_format;
 use crate::error::IoResult;
-use crate::option::DataType;
+
+use crate::util::binary;
 use crc::crc32;
 use crc::Hasher32;
 use memmap::MmapMut;
@@ -14,12 +14,6 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
-
-macro_rules! data_file_format {
-    ($ext:expr,$file_id:expr) => {
-        format!("{:09}.data", $file_id).to_lowercase()
-    };
-}
 
 //4 + 4 + 4 + 8
 //crc + key_len + value_len + timestamp
@@ -94,7 +88,7 @@ impl Entry {
 }
 
 impl DataFile {
-    pub fn new(dir_path: &str, size: u64, file_id: u32, data_type: DataType) -> IoResult<DataFile> {
+    pub fn new(dir_path: &str, size: u64, file_id: u32, data_type: &str) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
         let data_file_name = path.join(data_file_format!(data_type, file_id));
         let f = OpenOptions::new()
