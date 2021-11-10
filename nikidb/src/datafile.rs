@@ -14,12 +14,14 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
 
 //4 + 4 + 4 + 8
 //crc + key_len + value_len + timestamp
 pub const ENTRY_HEADER_SIZE: usize = 20;
 
 pub struct DataFile {
+    path: PathBuf,
     file: File,
     mmap: MmapMut,
     pub offset: usize,
@@ -95,7 +97,7 @@ impl DataFile {
             .read(true)
             .write(true)
             .create(true)
-            .open(data_file_name)?;
+            .open(&data_file_name)?;
         f.set_len(size)?;
         // let file_size = f.metadata()?.len();
         let mmap = unsafe { MmapMut::map_mut(&f).expect("Error creating memory map") };
@@ -104,6 +106,7 @@ impl DataFile {
             mmap: mmap,
             offset: 0,
             file_id: file_id,
+            path: data_file_name,
         })
     }
 
@@ -161,6 +164,23 @@ impl DataFile {
 
     pub fn iterator(&mut self) -> DataFileIterator {
         DataFileIterator::new(self)
+    }
+}
+
+impl Drop for DataFile {
+    fn drop(&mut self) {
+        self.file.sync_all().unwrap_or_default();
+        let path = &self.path.as_path();
+        let file_metadata = std::fs::metadata(path);
+        if let Ok(metadata) = file_metadata {
+            if metadata.len() == 0 {
+                log::trace!(
+                    "Datafile.drop: removing file since its empty {}",
+                    path.display()
+                );
+                let _ = std::fs::remove_file(path);
+            }
+        }
     }
 }
 

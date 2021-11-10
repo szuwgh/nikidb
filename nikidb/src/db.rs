@@ -5,7 +5,9 @@ use crate::error::IoResult;
 use crate::option::DataType;
 use crate::option::Options;
 use crate::option::{DATA_TYPE_ACTIVE, DATA_TYPE_MEGRE, DATA_TYPE_SSTABLE};
+use crate::option_skip_fail;
 use crate::result_skip_fail;
+use crate::util::file;
 use crate::util::time;
 use std::collections::HashMap;
 use std::fs;
@@ -47,21 +49,21 @@ pub struct DB {
 }
 
 struct Levels {
-    archived_level: Vec<ArchivedUnit>,
-    merged_level: Vec<MergeUnit>,
+    //archived_level: Vec<ArchivedUnit>,
+    merged_files: Vec<MergeUnit>,
 }
 
 impl Levels {
     fn new(file_size: u64, dir_path: String) -> IoResult<Levels> {
         let levels = Levels {
-            archived_level: Vec::new(),
-            merged_level: Vec::new(),
+            //archived_level: Vec::new(),
+            merged_files: Vec::new(),
         };
         Ok(levels)
     }
 
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        for x in self.archived_level.iter().rev() {
+        for x in self.merged_files.iter().rev() {
             match x.get(key) {
                 Ok(v) => return Ok(v),
                 Err(_) => continue,
@@ -244,7 +246,8 @@ impl ActiveUnit {
             active_file_id = self.active_file.file_id;
         }
         let old_active_file_id = active_file_id;
-        let active_file_id = file::next_sequence_file(self.data_dir);
+        let active_file_id = file::next_sequence_file(self.data_dir.as_str())
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
         let mut new_active_data_file = DataFile::new(
             &self.data_dir,
             self.file_size as u64,
@@ -286,26 +289,52 @@ struct ArchivedUnit {
     archived_files: HashMap<u32, DataFile>,
     //memory index message
     indexes: HashMap<Vec<u8>, IndexEntry>,
+    // data_dir: String,
 }
 
 impl ArchivedUnit {
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
-        let index_entry = self
-            .indexes
+        self.indexes
             .get(&key.to_vec())
-            .ok_or(Error::from(ErrorKind::Interrupted))?;
-        let file = self
-            .archived_files
-            .get(&index_entry.file_id)
-            .ok_or(Error::from(ErrorKind::Interrupted))?;
-        file.get(index_entry.offset)
+            .and_then(|index_entry| {
+                self.archived_files
+                    .get(&index_entry.file_id)
+                    .and_then(|file| file.get(index_entry.offset).ok())
+            })
+            .ok_or(Error::from(ErrorKind::Interrupted))
     }
 
-    fn merge(&self) {
-        //-> MergeUnit
-        let new_indexs: HashMap<Vec<u8>, IndexEntry> = HashMap::new();
+    fn remove(&mut self) {
+        for (k, v) in self.archived_files.iter() {
+            drop(v);
+        }
+    }
 
-        for (k, v) in self.indexes.iter() {}
+    fn merge(&self, data_dir: &str, size: u64) -> Option<MergeUnit> {
+        //-> MergeUnit
+        let mut new_indexs: HashMap<Vec<u8>, IndexEntry> = HashMap::new();
+        let mut new_data_file = file::next_sequence_file(data_dir).and_then(|next_file_id| {
+            DataFile::new(data_dir, size, next_file_id, DATA_TYPE_MEGRE).ok()
+        })?;
+        for (k, v) in self.indexes.iter() {
+            let file = option_skip_fail!(self.archived_files.get(&v.file_id));
+            let entry = result_skip_fail!(file.get(v.offset));
+            new_data_file.put(&entry).and_then(|offset| {
+                new_indexs
+                    .insert(
+                        k.to_vec(),
+                        IndexEntry {
+                            offset: offset,
+                            file_id: new_data_file.file_id,
+                        },
+                    )
+                    .ok_or(Error::from(ErrorKind::Interrupted))
+            });
+        }
+        Some(MergeUnit {
+            archived_files: new_data_file,
+            indexes: new_indexs,
+        })
     }
 }
 
@@ -315,7 +344,13 @@ struct MergeUnit {
 }
 
 impl MergeUnit {
-    fn get() {}
+    fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        let index_entry = self
+            .indexes
+            .get(&key.to_vec())
+            .ok_or(Error::from(ErrorKind::Interrupted))?;
+        self.archived_files.get(index_entry.offset)
+    }
 }
 
 struct SSTableUnit {}
@@ -345,26 +380,29 @@ impl DB {
             )?)),
             options: options,
         };
-        let l = db.levels.clone();
         let a = db.active_level.clone();
+        let l = db.levels.clone();
         thread::spawn(move || loop {
             let received = rx.recv().unwrap();
             println!("merge starting");
             //merge active to archievd
             let merge_unit: MergeUnit;
+            let old_archievd_unit: Option<ArchivedUnit>;
             {
                 let active = a.try_read().unwrap();
-
-                // let old_froze_archived_files = mem::replace(&mut active.froze_archived_files, None);
-                // match old_froze_archived_files {
-                //     Some(v) => {
-                //         let mut levels = l.write().unwrap();
-                //         levels.archived_level.push(v);
-                //     }
-                //     None => continue,
-                // };
+                merge_unit =
+                    option_skip_fail!(active.froze_archived_files.as_ref().and_then(|froze| {
+                        froze.merge(active.data_dir.as_str(), active.file_size as u64)
+                    }));
             }
-            {}
+            {
+                let mut merge_level = l.write().unwrap();
+                merge_level.merged_files.push(merge_unit);
+                let mut active = a.write().unwrap();
+                old_archievd_unit = mem::replace(&mut active.froze_archived_files, None);
+                // active.froze_archived_files = None;
+            }
+            old_archievd_unit.and_then(|mut n| Some(n.remove()));
         });
         Ok(db)
     }
