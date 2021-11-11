@@ -14,6 +14,7 @@ use std::fs;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::mem;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -54,7 +55,12 @@ struct Levels {
 }
 
 impl Levels {
-    fn new(file_size: u64, dir_path: String) -> IoResult<Levels> {
+    fn new(file_size: u64, data_dir: String) -> IoResult<Levels> {
+        let files = build_level_data_file(&data_dir, file_size)?;
+        let mut merge_vec: Vec<MergeUnit> = Vec::with_capacity(files.len());
+        for file in files.into_iter() {
+            merge_vec.push(MergeUnit::new(file));
+        }
         let levels = Levels {
             //archived_level: Vec::new(),
             merged_files: Vec::new(),
@@ -99,7 +105,7 @@ impl ActiveUnit {
         sender: mpsc::Sender<i32>,
         archievd_limit_num: u32,
     ) -> IoResult<ActiveUnit> {
-        let (active_file, archived_files) = build_data_file(&data_dir, file_size)?;
+        let (active_file, archived_files) = build_active_data_file(&data_dir, file_size)?;
         let mut active_unit = ActiveUnit {
             active_file: active_file,
             archived_files: archived_files,
@@ -110,66 +116,66 @@ impl ActiveUnit {
             sender: Mutex::new(sender),
             archievd_limit_num: archievd_limit_num,
         };
-        //  active_unit.load_index();
+        //active_unit.load_index();
         Ok(active_unit)
     }
 
-    fn load_index(&mut self) {
-        let mut id_vec = self
-            .archived_files
-            .iter_mut()
-            .map(|(_id, _)| _id.clone())
-            .collect::<Vec<u32>>();
-        id_vec.sort();
-        let mut file_id;
-        for id in id_vec.iter() {
-            let data_file = self.archived_files.get_mut(id).unwrap();
-            file_id = data_file.file_id;
-            println!("file_id is {}", file_id);
-            let mut iter = data_file.iterator();
-            let mut offset: usize = 0;
-            while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
-                let e = iter.next();
-                let entry = match e {
-                    Ok(entry) => entry,
-                    Err(_) => break,
-                };
-                self.indexes.insert(
-                    entry.key.clone(),
-                    IndexEntry {
-                        offset: offset as u64,
-                        file_id: file_id,
-                    },
-                );
-                offset += entry.size();
-            }
-        }
-        if id_vec.len() >= self.archievd_limit_num as usize {
-            self.froze_archived_files = Some(self.to_archived_unit());
-            let sender = self.sender.lock().unwrap();
-            sender.send(1);
-        }
-        file_id = self.active_file.file_id;
-        println!("active_file_id is {}", file_id);
-        let mut iter = self.active_file.iterator();
-        let mut offset: usize = 0;
-        while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
-            let e = iter.next();
-            let entry = match e {
-                Ok(entry) => entry,
-                Err(_) => break,
-            };
-            self.indexes.insert(
-                entry.key.clone(),
-                IndexEntry {
-                    offset: offset as u64,
-                    file_id: file_id,
-                },
-            );
-            offset += entry.size();
-        }
-        self.active_file.offset = offset;
-    }
+    // fn load_index(&mut self) {
+    //     let mut id_vec = self
+    //         .archived_files
+    //         .iter_mut()
+    //         .map(|(_id, _)| _id.clone())
+    //         .collect::<Vec<u32>>();
+    //     id_vec.sort();
+    //     let mut file_id;
+    //     for id in id_vec.iter() {
+    //         let data_file = self.archived_files.get_mut(id).unwrap();
+    //         file_id = data_file.file_id;
+    //         println!("file_id is {}", file_id);
+    //         let mut iter = data_file.iterator();
+    //         let mut offset: usize = 0;
+    //         while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
+    //             let e = iter.next();
+    //             let entry = match e {
+    //                 Ok(entry) => entry,
+    //                 Err(_) => break,
+    //             };
+    //             self.indexes.insert(
+    //                 entry.key.clone(),
+    //                 IndexEntry {
+    //                     offset: offset as u64,
+    //                     file_id: file_id,
+    //                 },
+    //             );
+    //             offset += entry.size();
+    //         }
+    //     }
+    //     if id_vec.len() >= self.archievd_limit_num as usize {
+    //         self.froze_archived_files = Some(self.to_archived_unit());
+    //         let sender = self.sender.lock().unwrap();
+    //         sender.send(1);
+    //     }
+    //     file_id = self.active_file.file_id;
+    //     println!("active_file_id is {}", file_id);
+    //     let mut iter = self.active_file.iterator();
+    //     let mut offset: usize = 0;
+    //     while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
+    //         let e = iter.next();
+    //         let entry = match e {
+    //             Ok(entry) => entry,
+    //             Err(_) => break,
+    //         };
+    //         self.indexes.insert(
+    //             entry.key.clone(),
+    //             IndexEntry {
+    //                 offset: offset as u64,
+    //                 file_id: file_id,
+    //             },
+    //         );
+    //         offset += entry.size();
+    //     }
+    //     self.active_file.offset = offset;
+    // }
 
     fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<()> {
         let e = Entry {
@@ -305,8 +311,19 @@ impl ArchivedUnit {
     }
 
     fn remove(&mut self) {
-        for (k, v) in self.archived_files.iter() {
-            drop(v);
+        let path_vec: Vec<PathBuf> = self
+            .archived_files
+            .iter()
+            .map(|(_k, _v)| _v.path.clone())
+            .collect();
+        self.archived_files.clear();
+        for path in path_vec.iter() {
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(e) => {
+                    println!("{}", e);
+                }
+            }
         }
     }
 
@@ -332,24 +349,52 @@ impl ArchivedUnit {
             });
         }
         Some(MergeUnit {
-            archived_files: new_data_file,
+            archived_file: new_data_file,
             indexes: new_indexs,
         })
     }
 }
 
 struct MergeUnit {
-    archived_files: DataFile,
+    archived_file: DataFile,
     indexes: HashMap<Vec<u8>, IndexEntry>,
 }
-
 impl MergeUnit {
+    fn new(archived_file: DataFile) -> MergeUnit {
+        let mut merge_unit = MergeUnit {
+            archived_file: archived_file,
+            indexes: HashMap::new(),
+        };
+        // merge_unit.load_index();
+        merge_unit
+    }
+
+    // fn load_index(&mut self) {
+    //     let mut iter = self.archived_file.iterator();
+    //     let mut offset: usize = 0;
+    //     while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
+    //         let e = iter.next();
+    //         let entry = match e {
+    //             Ok(entry) => entry,
+    //             Err(_) => break,
+    //         };
+    //         self.indexes.insert(
+    //             entry.key.clone(),
+    //             IndexEntry {
+    //                 offset: offset as u64,
+    //                 file_id: file_id,
+    //             },
+    //         );
+    //         offset += entry.size();
+    //     }
+    // }
+
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
         let index_entry = self
             .indexes
             .get(&key.to_vec())
             .ok_or(Error::from(ErrorKind::Interrupted))?;
-        self.archived_files.get(index_entry.offset)
+        self.archived_file.get(index_entry.offset)
     }
 }
 
@@ -400,7 +445,6 @@ impl DB {
                 merge_level.merged_files.push(merge_unit);
                 let mut active = a.write().unwrap();
                 old_archievd_unit = mem::replace(&mut active.froze_archived_files, None);
-                // active.froze_archived_files = None;
             }
             old_archievd_unit.and_then(|mut n| Some(n.remove()));
         });
@@ -426,7 +470,10 @@ impl DB {
     }
 }
 
-fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
+fn build_active_data_file(
+    dir_path: &str,
+    size: u64,
+) -> IoResult<(DataFile, HashMap<u32, DataFile>)> {
     let dir = fs::read_dir(dir_path)?;
 
     let names = dir
@@ -434,7 +481,7 @@ fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32
             entry.ok().and_then(|e| {
                 e.path().file_name().and_then(|n| {
                     n.to_str().and_then(|s| {
-                        if s.contains(".data") {
+                        if s.contains(".data.a") {
                             return Some(String::from(s));
                         }
                         None
@@ -465,6 +512,46 @@ fn build_data_file(dir_path: &str, size: u64) -> IoResult<(DataFile, HashMap<u32
     }
 
     Ok((active_file, files_map))
+}
+
+fn build_level_data_file(dir_path: &str, size: u64) -> IoResult<Vec<DataFile>> {
+    let dir = fs::read_dir(dir_path)?;
+
+    let names = dir
+        .filter_map(|entry| {
+            entry.ok().and_then(|e| {
+                e.path().file_name().and_then(|n| {
+                    n.to_str().and_then(|s| {
+                        if s.contains(".data.m") {
+                            return Some(String::from(s));
+                        }
+                        None
+                    })
+                })
+            })
+        })
+        .collect::<Vec<String>>();
+    let mut file_vec: Vec<DataFile> = Vec::with_capacity(names.len());
+    if names.len() == 0 {
+        return Ok(file_vec);
+    }
+    let mut files = names
+        .iter()
+        .filter_map(|n| {
+            let split_name: Vec<&str> = n.split(".").collect();
+            split_name[0].parse::<u32>().ok()
+        })
+        .collect::<Vec<u32>>();
+
+    for i in 0..files.len() {
+        file_vec.push(DataFile::new(dir_path, size, files[i], DATA_TYPE_MEGRE)?);
+        // files_map.insert(
+        //     files[i],
+        //     DataFile::new(dir_path, size, files[i], DATA_TYPE_MEGRE)?,
+        // );
+    }
+
+    Ok(file_vec)
 }
 
 #[cfg(test)]
