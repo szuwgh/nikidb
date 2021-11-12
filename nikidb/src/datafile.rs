@@ -26,6 +26,7 @@ pub struct DataFile {
     pub offset: usize,
     pub file_id: u32,
     pub path: PathBuf,
+    file_size: u64,
 }
 
 pub struct DataFileIterator<'a> {
@@ -36,10 +37,7 @@ pub struct DataFileIterator<'a> {
 impl<'a> Iterator for DataFileIterator<'a> {
     type Item = (u64, Entry);
     fn next(&mut self) -> Option<Self::Item> {
-        None
-        // let offset = self.file.seek(SeekFrom::Current(0)).unwrap();
-        // let decoded_maybe = bincode::deserialize_from(&self.file);
-        // Some((offset, decoded_maybe.ok()?))
+        self.data_file.next()
     }
 }
 
@@ -49,9 +47,6 @@ impl<'a> DataFileIterator<'a> {
             data_file: data_file,
         }
     }
-    // pub fn next(&mut self) -> IoResult<Entry> {
-    //     self.data_file.next()
-    // }
 }
 
 #[derive(Debug)]
@@ -101,7 +96,22 @@ impl Entry {
 }
 
 impl DataFile {
-    pub fn open() -> IoResult<DataFile> {}
+    pub fn open(dir_path: &str, file_id: u32, data_type: &str) -> IoResult<DataFile> {
+        let path = Path::new(dir_path);
+        let data_file_name = path.join(data_file_format!(data_type, file_id));
+        let f = OpenOptions::new().read(true).open(&data_file_name)?;
+        // f.set_len(size)?;
+        let file_size = f.metadata()?.len();
+        let mmap = unsafe { MmapMut::map_mut(&f).expect("Error creating memory map") };
+        Ok(Self {
+            file: f,
+            mmap: mmap,
+            offset: 0,
+            file_id: file_id,
+            path: data_file_name,
+            file_size: file_size,
+        })
+    }
 
     pub fn new(dir_path: &str, size: u64, file_id: u32, data_type: &str) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
@@ -120,6 +130,7 @@ impl DataFile {
             offset: 0,
             file_id: file_id,
             path: data_file_name,
+            file_size: size,
         })
     }
 
@@ -160,20 +171,27 @@ impl DataFile {
     pub fn next(&mut self) -> Option<(u64, Entry)> {
         let offset = self.offset;
         let hoff = self.offset + ENTRY_HEADER_SIZE;
+        let file_size = self.file_size as usize;
+        if hoff > file_size {
+            return None;
+        }
         let head = &self.mmap[self.offset..hoff];
-        let mut e = Entry::decode(head).ok_or(Error::from(ErrorKind::Interrupted))?;
-        // let offset = self.offset + ENTRY_HEADER_SIZE;
+        let mut e = Entry::decode(head)?;
+        if offset + e.size() > file_size {
+            return None;
+        }
+
         let koff = hoff + e.key.len();
         e.key.copy_from_slice(&self.mmap[hoff..koff]);
         let voff = koff + e.value.len();
         e.value.copy_from_slice(&self.mmap[koff..voff]);
-        self.offset = voff;
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
         digest.write(e.value.as_slice());
         if e.crc != digest.sum32() {
             return None;
         }
-        Ok((offset, e))
+        self.offset = voff;
+        Some((offset as u64, e))
     }
 
     pub fn iter(&mut self) -> DataFileIterator {
