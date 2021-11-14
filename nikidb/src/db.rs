@@ -56,7 +56,7 @@ struct Levels {
 
 impl Levels {
     fn new(file_size: u64, data_dir: String) -> IoResult<Levels> {
-        let files = build_level_data_file(&data_dir, file_size)?;
+        let files = build_level_data_file(&data_dir)?;
         let mut merge_vec: Vec<MergeUnit> = Vec::with_capacity(files.len());
         for file in files.into_iter() {
             merge_vec.push(MergeUnit::new(file));
@@ -525,7 +525,7 @@ fn build_active_data_file(
     Ok((active_file, files_map))
 }
 
-fn build_level_data_file(dir_path: &str, size: u64) -> IoResult<Vec<DataFile>> {
+fn build_level_data_file(dir_path: &str) -> IoResult<Vec<DataFile>> {
     let dir = fs::read_dir(dir_path)?;
 
     let names = dir
@@ -556,10 +556,6 @@ fn build_level_data_file(dir_path: &str, size: u64) -> IoResult<Vec<DataFile>> {
 
     for i in 0..files.len() {
         file_vec.push(DataFile::open(dir_path, files[i], DATA_TYPE_MEGRE)?);
-        // files_map.insert(
-        //     files[i],
-        //     DataFile::new(dir_path, size, files[i], DATA_TYPE_MEGRE)?,
-        // );
     }
 
     Ok(file_vec)
@@ -583,5 +579,9 @@ mod tests {
         let mut d = DB::open(c).unwrap();
         let value = d.get("a".as_bytes()).unwrap().value;
         println!("{:?}", String::from_utf8(value).unwrap());
+    }
+    #[test]
+    fn test_build_level_data_file() {
+        build_level_data_file();
     }
 }
