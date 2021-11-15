@@ -20,6 +20,19 @@ use std::path::PathBuf;
 //crc + key_len + value_len + timestamp
 pub const ENTRY_HEADER_SIZE: usize = 20;
 
+trait MFile {
+    fn put(&mut self);
+    fn get(&self);
+    fn next(&self);
+}
+
+pub struct MmapFILE {
+    file: File,
+    mmap: MmapMut,
+}
+
+pub struct IOFile {}
+
 pub struct DataFile {
     file: File,
     mmap: MmapMut,
@@ -147,7 +160,6 @@ impl DataFile {
 
     pub fn put(&mut self, e: &Entry) -> IoResult<u64> {
         let buf = e.encode();
-        //self.file.write_all(buf.as_slice())?;
         (&mut self.mmap[self.offset..]).write_all(buf.as_slice())?;
         self.mmap.flush().expect("Error flushing memory map");
         let s = self.offset;
@@ -169,7 +181,6 @@ impl DataFile {
         e.key.copy_from_slice(&self.mmap[offset..koff]);
         let voff = koff + e.value.len();
         e.value.copy_from_slice(&self.mmap[koff..voff]);
-
         let mut digest = crc32::Digest::new(crc32::CASTAGNOLI);
         digest.write(e.value.as_slice());
 

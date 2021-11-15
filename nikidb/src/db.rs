@@ -142,23 +142,6 @@ impl ActiveUnit {
                     },
                 );
             }
-            // let mut iter = data_file.iterator();
-            //let mut offset: usize = 0;
-            // while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
-            //     let e = iter.next();
-            //     let entry = match e {
-            //         Ok(entry) => entry,
-            //         Err(_) => break,
-            //     };
-            //     self.indexes.insert(
-            //         entry.key.clone(),
-            //         IndexEntry {
-            //             offset: offset as u64,
-            //             file_id: file_id,
-            //         },
-            //     );
-            //     offset += entry.size();
-            // }
         }
         if id_vec.len() >= self.archievd_limit_num as usize {
             self.froze_archived_files = Some(self.to_archived_unit());
@@ -177,24 +160,6 @@ impl ActiveUnit {
                 },
             );
         }
-        // let mut iter = self.active_file.iterator();
-        // let mut offset: usize = 0;
-        // while offset + datafile::ENTRY_HEADER_SIZE < self.file_size {
-        //     let e = iter.next();
-        //     let entry = match e {
-        //         Ok(entry) => entry,
-        //         Err(_) => break,
-        //     };
-        //     self.indexes.insert(
-        //         entry.key.clone(),
-        //         IndexEntry {
-        //             offset: offset as u64,
-        //             file_id: file_id,
-        //         },
-        //     );
-        //     offset += entry.size();
-        // }
-        //self.active_file.offset = offset;
     }
 
     fn put(&mut self, key: &[u8], value: &[u8]) -> IoResult<()> {
@@ -451,7 +416,7 @@ impl DB {
         thread::spawn(move || loop {
             let received = rx.recv().unwrap();
             println!("merge starting");
-            //merge active to archievd
+
             let merge_unit: MergeUnit;
             let old_archievd_unit: Option<ArchivedUnit>;
             {
