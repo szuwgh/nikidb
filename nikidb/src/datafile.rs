@@ -93,13 +93,24 @@ impl Entry {
     pub fn size(&self) -> usize {
         self.key.len() + self.value.len() + ENTRY_HEADER_SIZE
     }
+
+    pub fn key_to_str(&self) -> String {
+        String::from_utf8(self.key.clone()).unwrap()
+    }
+
+    pub fn value_to_str(&self) -> String {
+        String::from_utf8(self.value.clone()).unwrap()
+    }
 }
 
 impl DataFile {
     pub fn open(dir_path: &str, file_id: u32, data_type: &str) -> IoResult<DataFile> {
         let path = Path::new(dir_path);
         let data_file_name = path.join(data_file_format!(data_type, file_id));
-        let f = OpenOptions::new().read(true).open(&data_file_name)?;
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&data_file_name)?;
         // f.set_len(size)?;
         let file_size = f.metadata()?.len();
         let mmap = unsafe { MmapMut::map_mut(&f).expect("Error creating memory map") };

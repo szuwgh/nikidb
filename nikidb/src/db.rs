@@ -63,7 +63,7 @@ impl Levels {
         }
         let levels = Levels {
             //archived_level: Vec::new(),
-            merged_files: Vec::new(),
+            merged_files: merge_vec,
         };
         Ok(levels)
     }
@@ -116,7 +116,7 @@ impl ActiveUnit {
             sender: Mutex::new(sender),
             archievd_limit_num: archievd_limit_num,
         };
-        //active_unit.load_index();
+        active_unit.load_index();
         Ok(active_unit)
     }
 
@@ -133,6 +133,7 @@ impl ActiveUnit {
             file_id = data_file.file_id;
             println!("file_id is {}", file_id);
             for (offset, entry) in data_file.iter() {
+                println!("{},{},{}", offset, entry.key_to_str(), entry.value_to_str());
                 self.indexes.insert(
                     entry.key.clone(),
                     IndexEntry {
@@ -167,6 +168,7 @@ impl ActiveUnit {
         file_id = self.active_file.file_id;
         println!("active_file_id is {}", file_id);
         for (offset, entry) in self.active_file.iter() {
+            println!("{},{},{}", offset, entry.key_to_str(), entry.value_to_str());
             self.indexes.insert(
                 entry.key.clone(),
                 IndexEntry {
@@ -349,11 +351,12 @@ impl ArchivedUnit {
         //-> MergeUnit
         let mut new_indexs: HashMap<Vec<u8>, IndexEntry> = HashMap::new();
         let mut new_data_file = file::next_sequence_file(data_dir).and_then(|next_file_id| {
-            DataFile::new(data_dir, size, next_file_id, DATA_TYPE_MEGRE).ok()
+            DataFile::new(data_dir, size * 3, next_file_id, DATA_TYPE_MEGRE).ok()
         })?;
         for (k, v) in self.indexes.iter() {
             let file = option_skip_fail!(self.archived_files.get(&v.file_id));
             let entry = result_skip_fail!(file.get(v.offset));
+            println!("merge file {},{}", entry.key_to_str(), entry.value_to_str());
             new_data_file.put(&entry).and_then(|offset| {
                 new_indexs
                     .insert(
@@ -390,6 +393,12 @@ impl MergeUnit {
     fn load_index(&mut self) {
         let file_id = self.archived_file.file_id;
         for (offset, entry) in self.archived_file.iter() {
+            println!(
+                "merge unit {},{},{}",
+                offset,
+                entry.key_to_str(),
+                entry.value_to_str()
+            );
             self.indexes.insert(
                 entry.key.clone(),
                 IndexEntry {
@@ -401,6 +410,7 @@ impl MergeUnit {
     }
 
     fn get(&self, key: &[u8]) -> IoResult<Entry> {
+        println!("get for merge,{}", String::from_utf8_lossy(key));
         let index_entry = self
             .indexes
             .get(&key.to_vec())
@@ -474,6 +484,7 @@ impl DB {
                 Err(_) => {}
             }
         }
+        println!("get from merge");
         {
             let levels = self.levels.read().unwrap();
             levels.get(key)
