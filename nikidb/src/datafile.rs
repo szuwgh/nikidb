@@ -31,7 +31,11 @@ pub struct MmapFILE {
     mmap: MmapMut,
 }
 
+impl MFile for MmapFILE {}
+
 pub struct IOFile {}
+
+impl MFile for IOFile {}
 
 pub struct DataFile {
     file: File,
