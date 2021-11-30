@@ -31,11 +31,19 @@ pub struct MmapFILE {
     mmap: MmapMut,
 }
 
-impl MFile for MmapFILE {}
+impl MFile for MmapFILE {
+    fn put(&mut self) {}
+    fn get(&self) {}
+    fn next(&self) {}
+}
 
 pub struct IOFile {}
 
-impl MFile for IOFile {}
+impl MFile for IOFile {
+    fn put(&mut self) {}
+    fn get(&self) {}
+    fn next(&self) {}
+}
 
 pub struct DataFile {
     file: File,
