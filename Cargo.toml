@@ -9,4 +9,5 @@ edition = "2021"
 rustyline = "9.0.0"
 tokio = { version = "1", features = ["full"] }
 redcon = { path = "./redcon", version = "0.1.0" }
+nikikv = { path = "./nikikv", version = "0.1.0" }
 bytes = "1"

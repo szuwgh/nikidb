@@ -1,8 +1,8 @@
 use bytes::{Buf, Bytes};
 use futures::future::BoxFuture;
-use nikidb::db::DbDropGuard;
-use nikidb::db::DB;
-use nikidb::option::Options;
+use nikikv::db::DbDropGuard;
+use nikikv::db::DB;
+use nikikv::option::Options;
 use redcon::cmd::Command;
 use redcon::connection::Connection;
 use redcon::frame::Frame;
