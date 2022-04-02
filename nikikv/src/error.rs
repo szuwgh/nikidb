@@ -5,6 +5,6 @@ pub type NKResult<T> = Result<T, NKError>;
 
 #[derive(Error, Debug)]
 pub enum NKError {
-    #[error("open db fail :{0}")]
-    OpenDBFail(io::Error),
+    #[error("io fail :{0}")]
+    IoFail(io::Error),
 }
