@@ -4,7 +4,12 @@ use std::fs::File;
 use std::fs::OpenOptions;
 
 fn get_page_size() -> u32 {
-    0
+    4 * 1024
+}
+
+fn u8_to_struct<T>(buf: &mut [u8]) -> &mut T {
+    let s = unsafe { &mut *(buf.as_mut_ptr() as *mut u8 as *mut T) };
+    s
 }
 
 // const fn get_page_size() -> u32 {
@@ -17,8 +22,6 @@ pub struct DB {
     file: File,
     page_size: u32,
 }
-
-struct Meta {}
 
 impl DB {
     pub fn open(db_path: &str) -> NKResult<DB> {
@@ -48,4 +51,6 @@ impl DB {
 
         Ok(())
     }
+
+    fn page_in_buffer() {}
 }

@@ -1,3 +1,1 @@
-struct Page {}
-
-struct Bucket {}
+pub struct Bucket {}
