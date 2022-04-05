@@ -2,7 +2,7 @@ use crate::bucket::Bucket;
 use std::marker::PhantomData;
 
 //
-type Pgid = u64;
+pub type Pgid = u64;
 
 type Txid = u64;
 

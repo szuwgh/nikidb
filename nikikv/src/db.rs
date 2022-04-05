@@ -1,7 +1,10 @@
 use crate::error::NKError;
 use crate::error::NKResult;
+use crate::page::{Page, Pgid};
 use std::fs::File;
 use std::fs::OpenOptions;
+
+const magic: u32 = 0xED0CDAED;
 
 fn get_page_size() -> u32 {
     4 * 1024
@@ -41,16 +44,19 @@ impl DB {
     fn new(file: File) -> DB {
         Self {
             file: file,
-            page_size: 0,
+            page_size: get_page_size(),
         }
     }
 
     fn init(&mut self) -> NKResult<()> {
         self.page_size = get_page_size();
         let buf: Vec<u8> = vec![0; 4 * self.page_size as usize];
-
+        for i in 0..2 {}
         Ok(())
     }
 
-    fn page_in_buffer() {}
+    fn page_in_buffer<'a>(&mut self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
+        let i = (id * self.page_size) as usize;
+        u8_to_struct::<Page>(&mut buf[i..])
+    }
 }
