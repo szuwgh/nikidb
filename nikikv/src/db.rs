@@ -12,39 +12,24 @@ fn get_page_size() -> u32 {
 }
 
 pub struct DB {
-    file: File,
-    page_size: u32,
+    file: InnerFile,
     mmap: memmap::Mmap,
     // meta0: Meta,
     // meta1: Meta,
 }
 
-impl DB {
-    pub fn open(db_path: &str) -> NKResult<DB> {
-        let f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(db_path)
-            .map_err(|e| NKError::DBOpenFail(e))?;
-        let size = f.metadata().map_err(|e| NKError::DBOpenFail(e))?.len();
-        let mut db = Self::new(f);
-        if size == 0 {
-            db.init()?;
-        } else {
-            let mut buf = vec![0; 0x1000];
-            db.file
-                .read_at(&mut buf, 0)
-                .map_err(|_e| ("can't read to file", _e))?;
-            let m = db.page_in_buffer(&buf, 0).meta();
-            m.validate()?;
-            db.page_size = m.page_size;
-            println!("read:checksum {}", m.checksum);
-        }
-        Ok(db)
-    }
+struct InnerFile {
+    file: File,
+    page_size: u32,
+}
 
-    fn new(file: File) -> DB {
+struct InnerMmap<'a> {
+    meta0: &'a Meta,
+    meta1: &'a Meta,
+}
+
+impl InnerFile {
+    fn new(file: File) -> InnerFile {
         Self {
             file: file,
             page_size: 0,
@@ -105,6 +90,33 @@ impl DB {
 
     fn page_in_buffer<'a>(&self, buf: &'a [u8], id: u32) -> &'a Page {
         Page::from_buf(&buf[(id * self.page_size) as usize..])
+    }
+}
+
+impl DB {
+    pub fn open(db_path: &str) -> NKResult<DB> {
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(db_path)
+            .map_err(|e| NKError::DBOpenFail(e))?;
+        let size = f.metadata().map_err(|e| NKError::DBOpenFail(e))?.len();
+        let mut inner_file = InnerFile::new(f);
+        if size == 0 {
+            inner_file.init()?;
+        } else {
+            let mut buf = vec![0; 0x1000];
+            inner_file
+                .file
+                .read_at(&mut buf, 0)
+                .map_err(|_e| ("can't read to file", _e))?;
+            let m = inner_file.page_in_buffer(&buf, 0).meta();
+            m.validate()?;
+            inner_file.page_size = m.page_size;
+            println!("read:checksum {}", m.checksum);
+        }
+        Ok(db)
     }
 
     fn mmap(&mut self, mut min_size: u64) -> NKResult<()> {
