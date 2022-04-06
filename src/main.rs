@@ -28,7 +28,7 @@ async fn main() {
         let readline = rl.readline("nikidb> ");
         match readline {
             Ok(line) => {
-                let command = parse_redir_command(line);
+                let command = parse_redir_command(line);  
                 match command {
                     Some(cmd) => match cmd {
                         Command::Get { key } => {
