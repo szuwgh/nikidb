@@ -7,6 +7,10 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
 
+const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
+
+const MAX_MMAP_STEP: u64 = 1 << 30;
+
 fn get_page_size() -> u32 {
     page_size::get() as u32
 }
@@ -14,11 +18,22 @@ fn get_page_size() -> u32 {
 pub struct DB {
     file: File,
     page_size: u32,
+    file_size: u64,
     mmap: Option<memmap::Mmap>,
 }
 
+pub struct Options {
+    no_grow_sync: bool,
+
+    read_only: bool,
+
+    mmap_flags: u32,
+
+    initial_mmap_size: u64,
+}
+
 impl DB {
-    pub fn open(db_path: &str) -> NKResult<DB> {
+    pub fn open(db_path: &str, options: Options) -> NKResult<DB> {
         let f = OpenOptions::new()
             .read(true)
             .write(true)
@@ -39,7 +54,8 @@ impl DB {
             db.page_size = m.page_size;
             println!("read:checksum {}", m.checksum);
         }
-        db.mmap(1000)?;
+        db.file_size = size;
+        db.mmap(options.initial_mmap_size)?;
         Ok(db)
     }
 
@@ -47,6 +63,7 @@ impl DB {
         Self {
             file: file,
             page_size: 0,
+            file_size: 0,
             mmap: None,
         }
     }
@@ -107,8 +124,39 @@ impl DB {
         Page::from_buf(&buf[(id * self.page_size) as usize..])
     }
 
-    fn mmap<'c>(&mut self, mut min_size: u64) -> NKResult<()> {
+    fn mmap_size(&self, mut size: u64) -> NKResult<u64> {
+        for i in 15..=30 {
+            if size <= 1 << i {
+                return Ok(1 << i);
+            }
+        }
+
+        if size > MAX_MAP_SIZE {
+            return Err(NKError::Unexpected("mmap too large".to_string()));
+        }
+        let remainder = size % MAX_MMAP_STEP;
+        if remainder > 0 {
+            size += MAX_MAP_SIZE - remainder;
+        };
+        let page_size = self.page_size as u64;
+        if (size % page_size) != 0 {
+            size = ((size / page_size) + 1) * page_size;
+        };
+
+        // If we've exceeded the max size then only grow up to the max size.
+        if size > MAX_MAP_SIZE {
+            size = MAX_MAP_SIZE
+        };
+        Ok(size)
+    }
+
+    fn mmap(&mut self, mut min_size: u64) -> NKResult<()> {
         let mut mmap_opts = memmap::MmapOptions::new();
+        let mut size = self.file_size;
+        if size < min_size {
+            size = min_size;
+        }
+        min_size = self.mmap_size(size)?;
         let nmmap = unsafe {
             mmap_opts
                 .offset(0)

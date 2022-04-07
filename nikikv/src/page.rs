@@ -21,7 +21,9 @@ pub enum PageFlag {
 pub struct Page {
     pub id: Pgid,
     pub flags: PageFlag,
+    // 个数 2字节，统计叶子节点、非叶子节点、空闲列表页的个数
     pub count: u16,
+    // 4字节，数据是否有溢出，主要在空闲列表上有用
     pub overflow: u32,
     ptr: PhantomData<u8>,
 }
