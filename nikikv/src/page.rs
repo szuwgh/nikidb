@@ -1,4 +1,4 @@
-use crate::bucket::Bucket;
+use crate::bucket::IBucket;
 use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
 use fnv::FnvHasher;
@@ -46,7 +46,7 @@ pub struct Meta {
     pub version: u32,
     pub page_size: u32,
     pub flags: u32,
-    pub root: Bucket,
+    pub root: IBucket,
     pub freelist: Pgid,
     pub pgid: Pgid,
     pub txid: Txid,

@@ -1,4 +1,4 @@
-use crate::bucket::Bucket;
+use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
 use crate::page::{Meta, Page, PageFlag, Pgid};
 use crate::{magic, version};
@@ -18,7 +18,6 @@ fn get_page_size() -> u32 {
 pub struct DB {
     file: File,
     page_size: u32,
-    file_size: u64,
     mmap: Option<memmap::Mmap>,
 }
 
@@ -31,6 +30,13 @@ pub struct Options {
 
     initial_mmap_size: u64,
 }
+
+pub static DEFAULT_OPTIONS: Options = Options {
+    no_grow_sync: false,
+    read_only: false,
+    mmap_flags: 0,
+    initial_mmap_size: 0,
+};
 
 impl DB {
     pub fn open(db_path: &str, options: Options) -> NKResult<DB> {
@@ -54,7 +60,6 @@ impl DB {
             db.page_size = m.page_size;
             println!("read:checksum {}", m.checksum);
         }
-        db.file_size = size;
         db.mmap(options.initial_mmap_size)?;
         Ok(db)
     }
@@ -63,7 +68,6 @@ impl DB {
         Self {
             file: file,
             page_size: 0,
-            file_size: 0,
             mmap: None,
         }
     }
@@ -81,7 +85,7 @@ impl DB {
             m.version = version;
             m.page_size = self.page_size;
             m.freelist = 2;
-            m.root = Bucket::new(3);
+            m.root = IBucket::new(3);
             m.pgid = 4;
             m.txid = 1;
             m.checksum = m.sum64();
@@ -130,7 +134,6 @@ impl DB {
                 return Ok(1 << i);
             }
         }
-
         if size > MAX_MAP_SIZE {
             return Err(NKError::Unexpected("mmap too large".to_string()));
         }
@@ -142,7 +145,6 @@ impl DB {
         if (size % page_size) != 0 {
             size = ((size / page_size) + 1) * page_size;
         };
-
         // If we've exceeded the max size then only grow up to the max size.
         if size > MAX_MAP_SIZE {
             size = MAX_MAP_SIZE
@@ -150,13 +152,21 @@ impl DB {
         Ok(size)
     }
 
+    fn munmap() {}
+
     fn mmap(&mut self, mut min_size: u64) -> NKResult<()> {
         let mut mmap_opts = memmap::MmapOptions::new();
-        let mut size = self.file_size;
+
+        let mut size = self
+            .file
+            .metadata()
+            .map_err(|e| NKError::DBOpenFail(e))?
+            .len();
         if size < min_size {
             size = min_size;
         }
         min_size = self.mmap_size(size)?;
+        // let  munmap =
         let nmmap = unsafe {
             mmap_opts
                 .offset(0)
@@ -171,6 +181,8 @@ impl DB {
         self.mmap = Some(nmmap);
         Ok(())
     }
+
+    pub fn update() {}
 }
 
 #[cfg(test)]
@@ -178,6 +190,6 @@ mod tests {
     use super::*;
     #[test]
     fn test_db_open() {
-        DB::open("./test.db").unwrap();
+        DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
     }
 }
