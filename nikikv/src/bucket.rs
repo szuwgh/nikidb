@@ -9,11 +9,19 @@ pub struct Bucket {
 impl Bucket {
     pub fn new(root: Pgid) {}
 
-    pub fn create_bucket() -> Bucket {}
+    pub fn create_bucket(&mut self) {
+        let mut c = self.cursor();
+    }
+
+    fn cursor(&mut self) -> Cursor {
+        
+    }
 
     pub fn put(key: &[u8], value: &[u8]) {}
 
     pub fn get(key: &[u8]) {}
+
+    pub fn page_node(id: Pgid) -> () {}
 }
 
 pub struct IBucket {
