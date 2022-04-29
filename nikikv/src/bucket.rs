@@ -13,15 +13,15 @@ impl Bucket {
         let mut c = self.cursor();
     }
 
-    fn cursor(&mut self) -> Cursor {
-        
-    }
+    fn cursor(&mut self) -> Cursor {}
 
     pub fn put(key: &[u8], value: &[u8]) {}
 
     pub fn get(key: &[u8]) {}
 
     pub fn page_node(id: Pgid) -> () {}
+
+    pub fn value() -> &[u8] {}
 }
 
 pub struct IBucket {
