@@ -10,6 +10,12 @@ pub type Pgid = u64;
 
 pub type Txid = u64;
 
+pub struct Node {
+    is_leaf: bool,
+}
+
+pub struct INode {}
+
 pub enum PageFlag {
     BranchPageFlag,
     LeafPageFlag,

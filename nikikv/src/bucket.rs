@@ -1,9 +1,13 @@
-use crate::page::Pgid;
-use crate::tx::Tx;
+use std::collections::HashMap;
+
+use crate::cursor::Cursor;
+use crate::page::{Node, Pgid};
+
+use crate::error::NKResult;
 
 pub struct Bucket {
     bucket: IBucket,
-    //tx: Tx,
+    nodes: HashMap<Pgid, Node>, //tx: Tx,
 }
 
 impl Bucket {
@@ -13,15 +17,17 @@ impl Bucket {
         let mut c = self.cursor();
     }
 
-    fn cursor(&mut self) -> Cursor {}
+    fn cursor(&mut self) -> Cursor {
+        Cursor { bucket: self }
+    }
 
     pub fn put(key: &[u8], value: &[u8]) {}
 
     pub fn get(key: &[u8]) {}
 
-    pub fn page_node(id: Pgid) -> () {}
+    pub fn page_node(&self, id: Pgid) -> NKResult<()> {}
 
-    pub fn value() -> &[u8] {}
+    pub fn value() {}
 }
 
 pub struct IBucket {

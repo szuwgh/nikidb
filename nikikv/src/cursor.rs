@@ -2,7 +2,7 @@ use crate::bucket::Bucket;
 use crate::page::Page;
 
 pub struct Cursor<'a> {
-    bucket: &'a Bucket,
+    pub bucket: &'a Bucket,
 }
 
 impl<'a> Cursor<'a> {
@@ -18,7 +18,7 @@ impl<'a> Cursor<'a> {
 
     pub fn seek(&mut self) {}
 
-    fn _seek(&mut self) {}
+    fn search(&mut self) {}
 }
 
 struct ElemRef {
