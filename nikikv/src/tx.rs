@@ -1,12 +1,12 @@
 use crate::bucket::Bucket;
 use crate::db::DB;
 use std::rc::{Rc, Weak};
-pub struct Tx<'t> {
-    db: &'t DB,
+pub struct Tx {
+    db: Arc<DB>,
     root: Bucket,
 }
 
-impl<'t> Tx<'t> {
+impl Tx {
     pub fn build(db: &DB) -> Tx {
         let tx = Self {
             db: db,

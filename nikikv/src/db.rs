@@ -8,6 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
 use std::rc::Rc;
+use std::sync::Arc;
 
 const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
 
@@ -17,7 +18,16 @@ fn get_page_size() -> u32 {
     page_size::get() as u32
 }
 
-pub struct DB {
+pub struct DB(Arc<DBImpl>);
+
+impl DB {
+    fn begin(&self) -> Rc<Tx> {
+        let tx = Rc::new(Tx::build(self));
+        tx
+    }
+}
+
+pub struct DBImpl {
     file: File,
     page_size: u32,
     mmap: Option<memmap::Mmap>,
@@ -40,8 +50,8 @@ pub static DEFAULT_OPTIONS: Options = Options {
     initial_mmap_size: 0,
 };
 
-impl DB {
-    pub fn open(db_path: &str, options: Options) -> NKResult<DB> {
+impl DBImpl {
+    pub fn open(db_path: &str, options: Options) -> NKResult<DBImpl> {
         let f = OpenOptions::new()
             .read(true)
             .write(true)
@@ -66,7 +76,7 @@ impl DB {
         Ok(db)
     }
 
-    fn new(file: File) -> DB {
+    fn new(file: File) -> DBImpl {
         Self {
             file: file,
             page_size: 0,
@@ -159,11 +169,6 @@ impl DB {
         Ok(size)
     }
 
-    fn begin(&self) -> Rc<Tx> {
-        let tx = Rc::new(Tx::build(self));
-        tx
-    }
-
     fn munmap() {}
 
     fn mmap(&mut self, mut min_size: u64) -> NKResult<()> {
@@ -202,7 +207,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_db_open() {
-        let db = DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
         let tx = db.begin();
         db.update();
     }
