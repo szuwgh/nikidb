@@ -1,11 +1,13 @@
 use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
 use crate::page::{Meta, Page, PageFlag, Pgid};
+use crate::tx::Tx;
 use crate::{magic, version};
 use page_size;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
+use std::rc::Rc;
 
 const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
 
@@ -128,6 +130,11 @@ impl DB {
         Page::from_buf(&buf[(id * self.page_size) as usize..])
     }
 
+    fn page(&self, id: Pgid) -> *const Page {
+        let page = self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32);
+        &*page
+    }
+
     fn mmap_size(&self, mut size: u64) -> NKResult<u64> {
         for i in 15..=30 {
             if size <= 1 << i {
@@ -150,6 +157,11 @@ impl DB {
             size = MAX_MAP_SIZE
         };
         Ok(size)
+    }
+
+    fn begin(&self) -> Rc<Tx> {
+        let tx = Rc::new(Tx::build(self));
+        tx
     }
 
     fn munmap() {}
@@ -182,7 +194,7 @@ impl DB {
         Ok(())
     }
 
-    pub fn update() {}
+    pub fn update(&self) {}
 }
 
 #[cfg(test)]
@@ -190,6 +202,8 @@ mod tests {
     use super::*;
     #[test]
     fn test_db_open() {
-        DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let db = DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let tx = db.begin();
+        db.update();
     }
 }
