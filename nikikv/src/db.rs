@@ -1,9 +1,11 @@
 use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
 use crate::page::{Meta, Page, PageFlag, Pgid};
-use crate::tx::Tx;
+use crate::tx::{Tx, TxImpl};
 use crate::{magic, version};
 use page_size;
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
@@ -21,13 +23,14 @@ fn get_page_size() -> u32 {
 pub struct DB(Arc<DBImpl>);
 
 impl DB {
-    fn begin(&self) -> Rc<Tx> {
-        let tx = Rc::new(Tx::build(self));
+    fn begin(&self) -> Tx {
+        let mut tx = Tx(Arc::new(TxImpl::build(self.0.clone())));
+        tx.init();
         tx
     }
 }
 
-pub struct DBImpl {
+pub(crate) struct DBImpl {
     file: File,
     page_size: u32,
     mmap: Option<memmap::Mmap>,
@@ -140,7 +143,7 @@ impl DBImpl {
         Page::from_buf(&buf[(id * self.page_size) as usize..])
     }
 
-    fn page(&self, id: Pgid) -> *const Page {
+    pub fn page(&self, id: Pgid) -> *const Page {
         let page = self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32);
         &*page
     }

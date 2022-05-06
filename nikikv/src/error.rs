@@ -2,10 +2,10 @@ use std::fmt;
 use std::io;
 use std::io::Error as IOError;
 use thiserror::Error;
-pub type NKResult<T> = Result<T, NKError>;
+pub(crate) type NKResult<T> = Result<T, NKError>;
 
 #[derive(Error, Debug)]
-pub enum NKError {
+pub(crate) enum NKError {
     #[error("Unexpected: {0}, {1}")]
     UnexpectIO(String, io::Error),
     #[error("Unexpected: {0}")]
