@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 
 use crate::bucket::{Bucket, PageNode};
 use crate::error::NKResult;
-use crate::page::{Page, PageFlag, Pgid};
+use crate::page::{Node, Page, PageFlag, Pgid};
 
 pub(crate) struct Cursor<'a> {
     pub(crate) bucket: &'a Bucket,
@@ -51,7 +51,19 @@ impl<'a> Cursor<'a> {
             index: 0,
         };
         self.stack.push(elem_ref.clone());
-
+        if elem_ref.is_leaf() {
+            self.nsearch()
+        }
+        match elem_ref.page_node {
+            PageNode::Node(n) => self.search_node(key, &n),
+            PageNode::Page(p) => self.search_page(key, unsafe { &*p }),
+        }
         Ok(())
     }
+
+    fn nsearch(&self) {}
+
+    fn search_page(&self, key: &[u8], p: &Page) {}
+
+    fn search_node(&self, key: &[u8], p: &Node) {}
 }

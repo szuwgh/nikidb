@@ -144,8 +144,7 @@ impl DBImpl {
     }
 
     pub fn page(&self, id: Pgid) -> *const Page {
-        let page = self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32);
-        &*page
+        self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32)
     }
 
     fn mmap_size(&self, mut size: u64) -> NKResult<u64> {
