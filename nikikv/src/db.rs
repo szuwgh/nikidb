@@ -209,8 +209,9 @@ mod tests {
     use super::*;
     #[test]
     fn test_db_open() {
-        let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        let tx = db.begin();
-        db.update();
+        DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
     }
+
+    #[test]
+    fn test_tx() {}
 }

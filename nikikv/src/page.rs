@@ -48,6 +48,8 @@ struct BranchPageElement {
     pgid: Pgid,
 }
 
+impl BranchPageElement {}
+
 struct LeafPageElement {
     flags: u32,
     pos: u32,
@@ -118,12 +120,20 @@ impl Page {
         unsafe { &mut *(self.data_ptr_mut() as *mut T) }
     }
 
-    fn leaf_page_elements_mut(&mut self) -> &mut [LeafPageElement] {
-        self.elements_mut::<LeafPageElement>()
+    // fn leaf_page_elements_mut(&mut self) -> &mut [LeafPageElement] {
+    //     self.elements_mut::<LeafPageElement>()
+    // }
+
+    // fn branch_page_elements_mut(&mut self) -> &mut [BranchPageElement] {
+    //     self.elements_mut::<BranchPageElement>()
+    // }
+
+    pub(crate) fn branch_page_elements(&mut self) -> &[BranchPageElement] {
+        self.elements::<BranchPageElement>()
     }
 
-    fn branch_page_elements_mut(&mut self) -> &mut [BranchPageElement] {
-        self.elements_mut::<BranchPageElement>()
+    pub(crate) fn leaf_page_elements(&mut self) -> &mut [LeafPageElement] {
+        self.elements::<LeafPageElement>()
     }
 
     fn data_ptr_mut(&mut self) -> *mut u8 {

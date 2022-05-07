@@ -44,6 +44,7 @@ impl<'a> Cursor<'a> {
 
     pub fn seek(&mut self) {}
 
+    //查询
     fn search(&mut self, key: &[u8], id: Pgid) -> NKResult<()> {
         let page_node = self.bucket.page_node(id)?;
         let elem_ref = ElemRef {
@@ -63,7 +64,9 @@ impl<'a> Cursor<'a> {
 
     fn nsearch(&self) {}
 
-    fn search_page(&self, key: &[u8], p: &Page) {}
+    fn search_page(&self, key: &[u8], p: &Page) {
+        let inodes = p.branch_page_elements();
+    }
 
     fn search_node(&self, key: &[u8], p: &Node) {}
 }
