@@ -209,7 +209,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_db_open() {
-        DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        //DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
     }
 
     #[test]

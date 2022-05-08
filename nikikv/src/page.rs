@@ -42,19 +42,32 @@ pub(crate) struct Page {
     ptr: PhantomData<u8>,
 }
 
-struct BranchPageElement {
+pub(crate) struct BranchPageElement {
     pos: u32,
     ksize: u32,
     pgid: Pgid,
 }
 
-impl BranchPageElement {}
+impl BranchPageElement {
+    pub(crate) fn key(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self as *const u8).add(self.pos as usize),
+                self.ksize as usize,
+            )
+        }
+    }
+}
 
-struct LeafPageElement {
+pub(crate) struct LeafPageElement {
     flags: u32,
     pos: u32,
     ksize: u32,
     vsize: u32,
+}
+
+impl LeafPageElement {
+    pub(crate) fn key(&self) {}
 }
 
 pub(crate) struct Meta {
@@ -108,6 +121,10 @@ impl Page {
         self.element::<Meta>()
     }
 
+    fn elements<T>(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.data_ptr() as *const T, 10) }
+    }
+
     fn elements_mut<T>(&mut self) -> &mut [T] {
         unsafe { std::slice::from_raw_parts_mut(self.data_ptr_mut() as *mut T, 10) }
     }
@@ -120,19 +137,19 @@ impl Page {
         unsafe { &mut *(self.data_ptr_mut() as *mut T) }
     }
 
-    // fn leaf_page_elements_mut(&mut self) -> &mut [LeafPageElement] {
-    //     self.elements_mut::<LeafPageElement>()
-    // }
+    fn leaf_page_elements_mut(&mut self) -> &mut [LeafPageElement] {
+        self.elements_mut::<LeafPageElement>()
+    }
 
-    // fn branch_page_elements_mut(&mut self) -> &mut [BranchPageElement] {
-    //     self.elements_mut::<BranchPageElement>()
-    // }
+    fn branch_page_elements_mut(&mut self) -> &mut [BranchPageElement] {
+        self.elements_mut::<BranchPageElement>()
+    }
 
-    pub(crate) fn branch_page_elements(&mut self) -> &[BranchPageElement] {
+    pub(crate) fn branch_page_elements(&self) -> &[BranchPageElement] {
         self.elements::<BranchPageElement>()
     }
 
-    pub(crate) fn leaf_page_elements(&mut self) -> &mut [LeafPageElement] {
+    pub(crate) fn leaf_page_elements(&self) -> &[LeafPageElement] {
         self.elements::<LeafPageElement>()
     }
 

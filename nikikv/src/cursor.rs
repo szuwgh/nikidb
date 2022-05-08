@@ -66,7 +66,19 @@ impl<'a> Cursor<'a> {
 
     fn search_page(&self, key: &[u8], p: &Page) {
         let inodes = p.branch_page_elements();
+        //inodes.binary_search_by_key(b, f)
     }
 
     fn search_node(&self, key: &[u8], p: &Node) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_sort_search() {
+        let s = [0, 1, 1, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
+
+        println!("{:?}", s.binary_search(&14));
+    }
 }
