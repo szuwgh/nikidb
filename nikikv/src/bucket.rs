@@ -7,7 +7,7 @@ use crate::tx::TxImpl;
 use std::sync::{Arc, Weak};
 
 pub(crate) struct Bucket {
-    bucket: IBucket,
+    pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>, //tx: Tx,
     pub(crate) weak_tx: Weak<TxImpl>,
 }
@@ -27,7 +27,7 @@ impl From<Node> for PageNode {
 impl Bucket {
     pub(crate) fn new(root: Pgid, tx: Weak<TxImpl>) -> Bucket {
         Self {
-            bucket: IBucket {
+            ibucket: IBucket {
                 root: root,
                 sequence: 0,
             },
@@ -65,7 +65,7 @@ impl Bucket {
 }
 
 pub(crate) struct IBucket {
-    root: Pgid,
+    pub(crate) root: Pgid,
     sequence: u64,
 }
 

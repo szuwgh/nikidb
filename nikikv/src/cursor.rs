@@ -12,8 +12,10 @@ pub(crate) struct Cursor<'a> {
 #[derive(Clone)]
 pub(crate) struct ElemRef {
     page_node: PageNode,
-    index: i32,
+    index: usize, //寻找 key 在哪个 element
 }
+
+struct Item<'a>(&'a [u8], &'a [u8], u32);
 
 impl ElemRef {
     fn is_leaf(&self) -> bool {
@@ -21,6 +23,17 @@ impl ElemRef {
             PageNode::Node(n) => n.is_leaf,
             PageNode::Page(p) => unsafe { (*(*p)).flags == PageFlag::LeafPageFlag },
         }
+    }
+
+    fn count(&self) -> usize {
+        match &self.page_node {
+            PageNode::Node(n) => n.inodes.len(),
+            PageNode::Page(p) => self.get_page(p).count as usize,
+        }
+    }
+
+    fn get_page(&self, p: &*const Page) -> &Page {
+        unsafe { &**p }
     }
 }
 
@@ -36,13 +49,46 @@ impl<'a> Cursor<'a> {
 
     fn last(&mut self) {}
 
-    fn next(&mut self) {}
+    fn next(&mut self) -> NKResult<Option<Item>> {
+        loop {
+            let mut index: usize = 0;
+            for i in self.stack.len() - 1..0 {}
+        }
+        self.key_value()
+    }
 
     fn prev(&mut self) {}
 
     fn delete(&mut self) {}
 
-    pub fn seek(&mut self) {}
+    fn seek(&mut self, key: &[u8]) -> NKResult<()> {
+        let mut item: Option<Item> = None;
+        item = self.seek_elem(key)?;
+        let ref_elem = self.stack.last().ok_or("stack empty")?;
+        if ref_elem.index >= ref_elem.count() {}
+        Ok(())
+    }
+
+    fn seek_elem(&mut self, key: &[u8]) -> NKResult<Option<Item>> {
+        self.stack.clear();
+        self.search(key, self.bucket.ibucket.root)?;
+        let ref_elem = self.stack.last().ok_or("stack empty")?;
+        if ref_elem.index >= ref_elem.count() {
+            return Ok(None);
+        }
+        self.key_value()
+    }
+
+    fn key_value(&self) -> NKResult<Option<Item>> {
+        let ref_elem = self.stack.last().ok_or("stack empty")?;
+        match &ref_elem.page_node {
+            PageNode::Node(n) => Ok(None),
+            PageNode::Page(p) => {
+                let leaf = ref_elem.get_page(p).leaf_page_element(ref_elem.index);
+                Ok(Some(Item(leaf.key(), leaf.value(), leaf.flags)))
+            }
+        }
+    }
 
     //查询
     fn search(&mut self, key: &[u8], id: Pgid) -> NKResult<()> {
@@ -53,23 +99,50 @@ impl<'a> Cursor<'a> {
         };
         self.stack.push(elem_ref.clone());
         if elem_ref.is_leaf() {
-            self.nsearch()
+            self.nsearch(key)?;
         }
         match elem_ref.page_node {
-            PageNode::Node(n) => self.search_node(key, &n),
-            PageNode::Page(p) => self.search_page(key, unsafe { &*p }),
+            PageNode::Node(n) => self.search_node(key, &n)?,
+            PageNode::Page(p) => self.search_page(key, unsafe { &*p })?,
         }
         Ok(())
     }
 
-    fn nsearch(&self) {}
-
-    fn search_page(&self, key: &[u8], p: &Page) {
-        let inodes = p.branch_page_elements();
-        //inodes.binary_search_by_key(b, f)
+    //搜索叶子节点的数据
+    fn nsearch(&mut self, key: &[u8]) -> NKResult<()> {
+        let e = self.stack.last_mut().ok_or("stack empty")?;
+        match &e.page_node {
+            PageNode::Node(n) => {}
+            PageNode::Page(p) => {
+                let p = unsafe { &**p };
+                let inodes = p.leaf_page_elements();
+                let index = match inodes.binary_search_by(|inode| inode.key().cmp(key)) {
+                    Ok(v) => (v),
+                    Err(e) => (e),
+                };
+                e.index = index;
+            }
+        }
+        Ok(())
     }
 
-    fn search_node(&self, key: &[u8], p: &Node) {}
+    fn search_page(&mut self, key: &[u8], p: &Page) -> NKResult<()> {
+        let inodes = p.branch_page_elements();
+        let (exact, mut index) = match inodes.binary_search_by(|inode| inode.key().cmp(key)) {
+            Ok(v) => (true, v),
+            Err(e) => (false, e),
+        };
+        if !exact && index > 0 {
+            index -= 1;
+        }
+        self.stack.last_mut().ok_or("stack empty")?.index = index;
+        self.search(key, inodes[index].pgid)?;
+        Ok(())
+    }
+
+    fn search_node(&self, key: &[u8], p: &Node) -> NKResult<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -79,6 +152,6 @@ mod tests {
     fn test_sort_search() {
         let s = [0, 1, 1, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
 
-        println!("{:?}", s.binary_search(&14));
+        println!("{:?}", s.binary_search(&60));
     }
 }

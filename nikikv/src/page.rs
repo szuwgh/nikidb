@@ -13,8 +13,10 @@ pub(crate) type Txid = u64;
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
     pub(crate) is_leaf: bool,
+    pub(crate) inodes: Vec<INode>,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct INode {}
 
 #[derive(Copy, Clone)]
@@ -43,9 +45,9 @@ pub(crate) struct Page {
 }
 
 pub(crate) struct BranchPageElement {
-    pos: u32,
+    pos: u32, //存储键相对于当前页面数据部分的偏移量
     ksize: u32,
-    pgid: Pgid,
+    pub(crate) pgid: Pgid,
 }
 
 impl BranchPageElement {
@@ -60,14 +62,30 @@ impl BranchPageElement {
 }
 
 pub(crate) struct LeafPageElement {
-    flags: u32,
-    pos: u32,
+    pub(crate) flags: u32, //标志位，为0的时候表示就是普通的叶子节点，而为1的时候表示是子bucket，子bucket后面再展开说明。
+    pos: u32,              //存储键相对于当前页面数据部分的偏移量
     ksize: u32,
     vsize: u32,
 }
 
 impl LeafPageElement {
-    pub(crate) fn key(&self) {}
+    pub(crate) fn key(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self as *const u8).add(self.pos as usize),
+                self.ksize as usize,
+            )
+        }
+    }
+
+    pub(crate) fn value(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self as *const u8).add((self.pos + self.ksize) as usize),
+                self.vsize as usize,
+            )
+        }
+    }
 }
 
 pub(crate) struct Meta {
@@ -151,6 +169,10 @@ impl Page {
 
     pub(crate) fn leaf_page_elements(&self) -> &[LeafPageElement] {
         self.elements::<LeafPageElement>()
+    }
+
+    pub(crate) fn leaf_page_element(&self, index: usize) -> &LeafPageElement {
+        &self.elements::<LeafPageElement>()[index]
     }
 
     fn data_ptr_mut(&mut self) -> *mut u8 {
