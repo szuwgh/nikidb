@@ -5,15 +5,29 @@ use fnv::FnvHasher;
 use memoffset::offset_of;
 use std::hash::Hasher;
 use std::marker::PhantomData;
+use std::mem::size_of;
 //
 pub(crate) type Pgid = u64;
 
 pub(crate) type Txid = u64;
 
+pub(crate) const LeafPageElementSize: usize = size_of::<LeafPageElement>();
+
+pub(crate) const BranchPageElementSize: usize = size_of::<BranchPageElement>();
+
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
+}
+
+impl Node {
+    pub(crate) fn new(is_leaf: bool) -> Node {
+        Self {
+            is_leaf: false,
+            inodes: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

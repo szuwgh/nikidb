@@ -15,7 +15,7 @@ pub(crate) struct ElemRef {
     index: usize, //寻找 key 在哪个 element
 }
 
-struct Item<'a>(Option<&'a [u8]>, Option<&'a [u8]>, u32);
+pub(crate) struct Item<'a>(Option<&'a [u8]>, Option<&'a [u8]>, u32);
 
 impl<'a> Item<'a> {
     fn from(key: &'a [u8], value: &'a [u8], flags: u32) -> Item<'a> {

@@ -26,7 +26,7 @@ impl From<Node> for PageNode {
 }
 
 impl Bucket {
-    pub(crate) fn new(root: Pgid, tx: Weak<TxImpl>) -> Bucket {
+    pub(crate) fn new(root: Pgid, is_leaf: bool, tx: Weak<TxImpl>) -> Bucket {
         Self {
             ibucket: IBucket {
                 root: root,
@@ -34,21 +34,24 @@ impl Bucket {
             },
             nodes: HashMap::new(),
             weak_tx: tx,
+            rootNode: Node::new(is_leaf),
         }
     }
 
     pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<Bucket> {
         let mut c = self.cursor();
-        let item = c.seek()?;
-        if item.key().eq(key) {
+        let item = c.seek(key)?;
+        if item.key().eq(&Some(key)) {
             if item.flags() & BucketLeafFlag != 0 {
-                return NKError::ErrBucketExists(String::from_utf8_lossy(key));
+                return Err(NKError::ErrBucketExists(
+                    String::from_utf8_lossy(key).into(),
+                ));
             }
-            return NKError::ErrIncompatibleValue;
         }
 
         //
-        let bucket = Bucket::new(0, self.weak_tx.clone());
+        let bucket = Bucket::new(0, true, self.weak_tx.clone());
+        let value = bucket.write();
         Ok(bucket)
     }
 
@@ -74,7 +77,11 @@ impl Bucket {
         self.weak_tx.upgrade()
     }
 
-    pub(crate) fn value() {}
+    pub(crate) fn write(&self) -> Vec<u8> {
+        let n = &self.rootNode;
+        //  let size = n.size();
+        Vec::new()
+    }
 }
 
 pub(crate) struct IBucket {

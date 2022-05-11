@@ -26,7 +26,7 @@ impl TxImpl {
     pub(crate) fn build(db: Arc<DBImpl>) -> TxImpl {
         let tx = Self {
             dbImpl: db.clone(),
-            root: RefCell::new(Bucket::new(0, Weak::new())),
+            root: RefCell::new(Bucket::new(0, false, Weak::new())),
         };
         tx
     }
