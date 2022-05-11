@@ -17,7 +17,9 @@ pub(crate) struct Node {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct INode {}
+pub(crate) struct INode {
+    pub(crate) pgid: Pgid,
+}
 
 #[derive(Copy, Clone)]
 pub(crate) enum PageFlag {
@@ -26,6 +28,8 @@ pub(crate) enum PageFlag {
     MetaPageFlag = 0b00100,
     FreeListPageFlag = 0b10000,
 }
+
+pub(crate) const BucketLeafFlag: u32 = 0x01;
 
 impl PartialEq for PageFlag {
     fn eq(&self, other: &PageFlag) -> bool {
@@ -173,6 +177,10 @@ impl Page {
 
     pub(crate) fn leaf_page_element(&self, index: usize) -> &LeafPageElement {
         &self.elements::<LeafPageElement>()[index]
+    }
+
+    pub(crate) fn branch_page_element(&self, index: usize) -> &BranchPageElement {
+        &self.elements::<BranchPageElement>()[index]
     }
 
     fn data_ptr_mut(&mut self) -> *mut u8 {

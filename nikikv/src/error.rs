@@ -18,6 +18,10 @@ pub(crate) enum NKError {
     ErrVersionMismatch,
     #[error("checksum error")]
     ErrChecksum,
+    #[error("incompatible value")]
+    ErrIncompatibleValue,
+    #[error("{0} bucket exists")]
+    ErrBucketExists(String),
 }
 
 impl From<&str> for NKError {

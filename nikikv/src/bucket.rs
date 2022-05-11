@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::cursor::Cursor;
-use crate::error::NKResult;
-use crate::page::{Node, Page, Pgid};
+use crate::error::{NKError, NKResult};
+use crate::page::{BucketLeafFlag, Node, Page, Pgid};
 use crate::tx::TxImpl;
 use std::sync::{Arc, Weak};
 
@@ -10,6 +10,7 @@ pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>, //tx: Tx,
     pub(crate) weak_tx: Weak<TxImpl>,
+    rootNode: Node,
 }
 
 #[derive(Clone)]
@@ -36,12 +37,24 @@ impl Bucket {
         }
     }
 
-    pub(crate) fn create_bucket(&mut self) {
+    pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<Bucket> {
         let mut c = self.cursor();
+        let item = c.seek()?;
+        if item.key().eq(key) {
+            if item.flags() & BucketLeafFlag != 0 {
+                return NKError::ErrBucketExists(String::from_utf8_lossy(key));
+            }
+            return NKError::ErrIncompatibleValue;
+        }
+
+        //
+        let bucket = Bucket::new(0, self.weak_tx.clone());
+        Ok(bucket)
     }
 
     fn cursor(&mut self) -> Cursor {
         Cursor::new(self)
+        //    let item =
         // Cursor { bucket: self }
     }
 
