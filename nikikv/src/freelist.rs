@@ -1,1 +1,1 @@
-pub struct FreeList {}
+pub(crate) struct FreeList {}

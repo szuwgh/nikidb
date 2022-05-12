@@ -2,6 +2,7 @@ mod bucket;
 mod cursor;
 mod db;
 mod error;
+mod freelist;
 mod page;
 mod tx;
 

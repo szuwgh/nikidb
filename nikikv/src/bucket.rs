@@ -4,7 +4,9 @@ use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
 use crate::page::{BucketLeafFlag, Node, Page, Pgid};
 use crate::tx::TxImpl;
+use std::mem::size_of;
 use std::sync::{Arc, Weak};
+pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
@@ -79,11 +81,18 @@ impl Bucket {
 
     pub(crate) fn write(&self) -> Vec<u8> {
         let n = &self.rootNode;
-        //  let size = n.size();
+        let size = n.size();
+        let mut value = vec![0u8; BucketHeaderSize + size];
+
+        let bucket = value.as_ptr() as *mut IBucket;
+        unsafe { *bucket = *&self.ibucket }
+        let p = Page::from_buf_mut(&mut value[BucketHeaderSize..]);
+
         Vec::new()
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct IBucket {
     pub(crate) root: Pgid,
     sequence: u64,

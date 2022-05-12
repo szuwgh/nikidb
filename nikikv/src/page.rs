@@ -28,11 +28,39 @@ impl Node {
             inodes: Vec::new(),
         }
     }
+
+    pub(crate) fn size(&self) -> usize {
+        let mut sz = Page::header_size();
+        let elsz = self.page_element_size();
+        for i in 0..self.inodes.len() {
+            let item = self.inodes.get(i).unwrap();
+            sz += elsz + item.key.len() + item.value.len();
+        }
+        sz
+    }
+
+    fn page_element_size(&self) -> usize {
+        if self.is_leaf {
+            return LeafPageElementSize;
+        }
+        BranchPageElementSize
+    }
+
+    fn write(&self, p: &mut Page) -> NKResult<()> {
+        if self.is_leaf {
+            p.flags = PageFlag::LeafPageFlag;
+        } else {
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct INode {
+    flags: u32,
     pub(crate) pgid: Pgid,
+    key: Vec<u8>,
+    value: Vec<u8>,
 }
 
 #[derive(Copy, Clone)]
@@ -141,6 +169,10 @@ impl Meta {
 }
 
 impl Page {
+    pub(crate) fn header_size() -> usize {
+        offset_of!(Page, ptr)
+    }
+
     pub(crate) fn from_buf_mut(buf: &mut [u8]) -> &mut Page {
         crate::u8_to_struct_mut::<Page>(buf)
     }
