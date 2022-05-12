@@ -46,10 +46,29 @@ impl Node {
         BranchPageElementSize
     }
 
-    fn write(&self, p: &mut Page) -> NKResult<()> {
+    fn write_to(&self, p: &mut Page) -> NKResult<()> {
         if self.is_leaf {
             p.flags = PageFlag::LeafPageFlag;
         } else {
+            p.flags = PageFlag::BranchPageFlag;
+        }
+        if self.inodes.len() > 0xFFF {
+            panic!("inode overflow: {} (pgid={})", self.inodes.len(), p.id);
+        }
+        p.count = self.inodes.len() as u16;
+        if p.count == 0 {
+            return Ok(());
+        }
+
+        let buf_ptr = unsafe {
+            p.data_ptr_mut()
+                .add(self.page_element_size() * self.inodes.len())
+        };
+
+        for (i, item) in self.inodes.iter().enumerate() {
+            if self.is_leaf {
+            } else {
+            }
         }
         Ok(())
     }
