@@ -3,6 +3,7 @@ mod cursor;
 mod db;
 mod error;
 mod freelist;
+mod node;
 mod page;
 mod tx;
 

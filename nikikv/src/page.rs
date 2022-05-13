@@ -6,81 +6,16 @@ use memoffset::offset_of;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
+use std::ops::Sub;
 //
-pub(crate) type Pgid = u64;
-
-pub(crate) type Txid = u64;
 
 pub(crate) const LeafPageElementSize: usize = size_of::<LeafPageElement>();
 
 pub(crate) const BranchPageElementSize: usize = size_of::<BranchPageElement>();
 
-#[derive(Clone, Debug)]
-pub(crate) struct Node {
-    pub(crate) is_leaf: bool,
-    pub(crate) inodes: Vec<INode>,
-}
+pub(crate) type Pgid = u64;
 
-impl Node {
-    pub(crate) fn new(is_leaf: bool) -> Node {
-        Self {
-            is_leaf: false,
-            inodes: Vec::new(),
-        }
-    }
-
-    pub(crate) fn size(&self) -> usize {
-        let mut sz = Page::header_size();
-        let elsz = self.page_element_size();
-        for i in 0..self.inodes.len() {
-            let item = self.inodes.get(i).unwrap();
-            sz += elsz + item.key.len() + item.value.len();
-        }
-        sz
-    }
-
-    fn page_element_size(&self) -> usize {
-        if self.is_leaf {
-            return LeafPageElementSize;
-        }
-        BranchPageElementSize
-    }
-
-    fn write_to(&self, p: &mut Page) -> NKResult<()> {
-        if self.is_leaf {
-            p.flags = PageFlag::LeafPageFlag;
-        } else {
-            p.flags = PageFlag::BranchPageFlag;
-        }
-        if self.inodes.len() > 0xFFF {
-            panic!("inode overflow: {} (pgid={})", self.inodes.len(), p.id);
-        }
-        p.count = self.inodes.len() as u16;
-        if p.count == 0 {
-            return Ok(());
-        }
-
-        let buf_ptr = unsafe {
-            p.data_ptr_mut()
-                .add(self.page_element_size() * self.inodes.len())
-        };
-
-        for (i, item) in self.inodes.iter().enumerate() {
-            if self.is_leaf {
-            } else {
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct INode {
-    flags: u32,
-    pub(crate) pgid: Pgid,
-    key: Vec<u8>,
-    value: Vec<u8>,
-}
+pub(crate) type Txid = u64;
 
 #[derive(Copy, Clone)]
 pub(crate) enum PageFlag {
@@ -110,8 +45,8 @@ pub(crate) struct Page {
 }
 
 pub(crate) struct BranchPageElement {
-    pos: u32, //存储键相对于当前页面数据部分的偏移量
-    ksize: u32,
+    pub(crate) pos: u32, //存储键相对于当前页面数据部分的偏移量
+    pub(crate) ksize: u32,
     pub(crate) pgid: Pgid,
 }
 
@@ -124,13 +59,17 @@ impl BranchPageElement {
             )
         }
     }
+
+    pub(crate) fn as_ptr(&self) -> *const u8 {
+        self as *const BranchPageElement as *const u8
+    }
 }
 
 pub(crate) struct LeafPageElement {
     pub(crate) flags: u32, //标志位，为0的时候表示就是普通的叶子节点，而为1的时候表示是子bucket，子bucket后面再展开说明。
-    pos: u32,              //存储键相对于当前页面数据部分的偏移量
-    ksize: u32,
-    vsize: u32,
+    pub(crate) pos: u32,   //存储键相对于当前页面数据部分的偏移量
+    pub(crate) ksize: u32,
+    pub(crate) vsize: u32,
 }
 
 impl LeafPageElement {
@@ -150,6 +89,10 @@ impl LeafPageElement {
                 self.vsize as usize,
             )
         }
+    }
+
+    pub(crate) fn as_ptr(&self) -> *const u8 {
+        self as *const LeafPageElement as *const u8
     }
 }
 
@@ -209,11 +152,13 @@ impl Page {
     }
 
     fn elements<T>(&self) -> &[T] {
-        unsafe { std::slice::from_raw_parts(self.data_ptr() as *const T, 10) }
+        unsafe { std::slice::from_raw_parts(self.data_ptr() as *const T, self.count as usize) }
     }
 
     fn elements_mut<T>(&mut self) -> &mut [T] {
-        unsafe { std::slice::from_raw_parts_mut(self.data_ptr_mut() as *mut T, 10) }
+        unsafe {
+            std::slice::from_raw_parts_mut(self.data_ptr_mut() as *mut T, self.count as usize)
+        }
     }
 
     fn element<T>(&self) -> &T {
@@ -241,18 +186,26 @@ impl Page {
     }
 
     pub(crate) fn leaf_page_element(&self, index: usize) -> &LeafPageElement {
-        &self.elements::<LeafPageElement>()[index]
+        self.leaf_page_elements().get(index).unwrap()
     }
 
     pub(crate) fn branch_page_element(&self, index: usize) -> &BranchPageElement {
-        &self.elements::<BranchPageElement>()[index]
+        self.branch_page_elements().get(index).unwrap()
     }
 
-    fn data_ptr_mut(&mut self) -> *mut u8 {
+    pub(crate) fn leaf_page_element_mut(&mut self, index: usize) -> &mut LeafPageElement {
+        self.leaf_page_elements_mut().get_mut(index).unwrap()
+    }
+
+    pub(crate) fn branch_page_element_mut(&mut self, index: usize) -> &mut BranchPageElement {
+        self.branch_page_elements_mut().get_mut(index).unwrap()
+    }
+
+    pub(crate) fn data_ptr_mut(&mut self) -> *mut u8 {
         &mut self.ptr as *mut PhantomData<u8> as *mut u8
     }
 
-    fn data_ptr(&self) -> *const u8 {
+    pub(crate) fn data_ptr(&self) -> *const u8 {
         &self.ptr as *const PhantomData<u8> as *const u8
     }
 }

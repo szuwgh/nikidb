@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
-use crate::page::{BucketLeafFlag, Node, Page, Pgid};
+use crate::node::Node;
+use crate::page::{BucketLeafFlag, Page, Pgid};
 use crate::tx::TxImpl;
 use std::mem::size_of;
 use std::sync::{Arc, Weak};
@@ -51,9 +52,9 @@ impl Bucket {
             }
         }
 
-        //
         let bucket = Bucket::new(0, true, self.weak_tx.clone());
         let value = bucket.write();
+
         Ok(bucket)
     }
 
@@ -87,9 +88,13 @@ impl Bucket {
         let bucket = value.as_ptr() as *mut IBucket;
         unsafe { *bucket = *&self.ibucket }
         let p = Page::from_buf_mut(&mut value[BucketHeaderSize..]);
-
-        Vec::new()
+        n.write_to(p);
+        value
     }
+
+    // fn node(&self, pgid: Pgid, parent: Option<Weak<Node>>) -> &Node {
+    //     self.nodes
+    // }
 }
 
 #[derive(Clone, Copy)]
