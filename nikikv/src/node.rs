@@ -11,16 +11,24 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::ops::Sub;
+use std::rc::Rc;
 use std::sync::{Arc, Weak};
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Node {
-    pub(crate) is_leaf: bool,
-    pub(crate) inodes: Vec<INode>,
-    pub(crate) parent: Weak<Node>,
+
+pub(crate) type Node = Rc<NodeImpl>;
+
+fn return_node() -> Node {
+    Rc::new(NodeImpl::new(false))
 }
 
-impl Node {
-    pub(crate) fn new(is_leaf: bool) -> Node {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct NodeImpl {
+    pub(crate) is_leaf: bool,
+    pub(crate) inodes: Vec<INode>,
+    pub(crate) parent: Weak<NodeImpl>,
+}
+
+impl NodeImpl {
+    pub(crate) fn new(is_leaf: bool) -> NodeImpl {
         Self {
             is_leaf: false,
             inodes: Vec::new(),

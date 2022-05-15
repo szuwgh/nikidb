@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 
 use crate::bucket::{Bucket, PageNode};
 use crate::error::{NKError, NKResult};
-use crate::node::Node;
+use crate::node::{Node, NodeImpl};
 use crate::page::{BucketLeafFlag, Page, PageFlag, Pgid};
 pub(crate) struct Cursor<'a> {
     pub(crate) bucket: &'a Bucket,
@@ -61,9 +61,9 @@ impl ElemRef {
         }
     }
 
-    fn node(&self) -> Option<&Node> {
+    fn node(&self) -> Option<Node> {
         match &self.page_node {
-            PageNode::Node(n) => Some(n),
+            PageNode::Node(n) => Some(n.clone()),
             PageNode::Page(_) => None,
         }
     }
@@ -226,7 +226,7 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
 
-    fn node(&self) -> NKResult<&Node> {
+    fn node(&self) -> NKResult<Node> {
         let ref_elem = self.stack.last().ok_or("stack empty")?;
         if ref_elem.is_node() && ref_elem.is_leaf() {
             return Ok(ref_elem.node().expect("get node fail"));

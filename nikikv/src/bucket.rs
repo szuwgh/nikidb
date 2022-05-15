@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
-use crate::node::Node;
+use crate::node::{Node, NodeImpl};
 use crate::page::{BucketLeafFlag, Page, Pgid};
 use crate::tx::TxImpl;
 use std::mem::size_of;
+use std::rc::Rc;
 use std::sync::{Arc, Weak};
 pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
 
@@ -13,7 +14,7 @@ pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>, //tx: Tx,
     pub(crate) weak_tx: Weak<TxImpl>,
-    rootNode: Node,
+    rootNode: Option<Node>,
 }
 
 #[derive(Clone)]
@@ -37,7 +38,7 @@ impl Bucket {
             },
             nodes: HashMap::new(),
             weak_tx: tx,
-            rootNode: Node::new(is_leaf),
+            rootNode: None, //NodeImpl::new(is_leaf),
         }
     }
 
@@ -81,7 +82,7 @@ impl Bucket {
     }
 
     pub(crate) fn write(&self) -> Vec<u8> {
-        let n = &self.rootNode;
+        let n = self.rootNode.as_ref().unwrap();
         let size = n.size();
         let mut value = vec![0u8; BucketHeaderSize + size];
 
@@ -92,9 +93,14 @@ impl Bucket {
         value
     }
 
-    // fn node(&self, pgid: Pgid, parent: Option<Weak<Node>>) -> &Node {
-    //     self.nodes
-    // }
+    fn node(&self, pgid: Pgid, parent: Weak<NodeImpl>) -> Node {
+        // self.nodes
+        if let Some(node) = self.nodes.get(&pgid) {
+            return node.clone();
+            //return Ok(PageNode::Node(node.clone()));
+        }
+        Rc::new(NodeImpl::new(false))
+    }
 }
 
 #[derive(Clone, Copy)]
