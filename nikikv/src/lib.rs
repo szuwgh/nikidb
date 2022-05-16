@@ -7,8 +7,8 @@ mod node;
 mod page;
 mod tx;
 
-pub const magic: u32 = 0xED0CDAED;
-pub const version: u32 = 2;
+pub(crate) const magic: u32 = 0xED0CDAED;
+pub(crate) const version: u32 = 2;
 
 pub(crate) fn u8_to_struct_mut<T>(buf: &mut [u8]) -> &mut T {
     let s = unsafe { &mut *(buf.as_mut_ptr() as *mut u8 as *mut T) };

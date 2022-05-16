@@ -1,6 +1,6 @@
 use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
-use crate::page::{Meta, Page, PageFlag, Pgid};
+use crate::page::{FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, Page, Pgid};
 use crate::tx::{Tx, TxImpl};
 use crate::{magic, version};
 use page_size;
@@ -93,7 +93,7 @@ impl DBImpl {
         for i in 0..2 {
             let p = self.page_in_buffer_mut(&mut buf, i);
             p.id = i as Pgid;
-            p.flags = PageFlag::MetaPageFlag;
+            p.flags = MetaPageFlag;
 
             let m = p.meta_mut();
             m.magic = magic;
@@ -109,12 +109,12 @@ impl DBImpl {
         // write an empty freelist at page 3
         let mut p = self.page_in_buffer_mut(&mut buf, 2);
         p.id = 2;
-        p.flags = PageFlag::FreeListPageFlag;
+        p.flags = FreeListPageFlag;
         p.count = 0;
 
         p = self.page_in_buffer_mut(&mut buf, 3);
         p.id = 3;
-        p.flags = PageFlag::LeafPageFlag;
+        p.flags = LeafPageFlag;
         p.count = 0;
 
         self.write_at(&mut buf, 0)?;

@@ -17,26 +17,25 @@ pub(crate) type Pgid = u64;
 
 pub(crate) type Txid = u64;
 
-#[derive(Copy, Clone)]
-pub(crate) enum PageFlag {
-    BranchPageFlag = 0b00001,
-    LeafPageFlag = 0b00010,
-    MetaPageFlag = 0b00100,
-    FreeListPageFlag = 0b10000,
-}
+pub(crate) type PageFlag = u16;
+
+pub(crate) const BranchPageFlag: u16 = 0x01;
+pub(crate) const LeafPageFlag: u16 = 0x02;
+pub(crate) const MetaPageFlag: u16 = 0x04;
+pub(crate) const FreeListPageFlag: u16 = 0x10;
 
 pub(crate) const BucketLeafFlag: u32 = 0x01;
 
-impl PartialEq for PageFlag {
-    fn eq(&self, other: &PageFlag) -> bool {
-        *self as u16 == *other as u16
-    }
-}
+// impl PartialEq for PageFlag {
+//     fn eq(&self, other: &PageFlag) -> bool {
+//         *self as u16 == *other as u16
+//     }
+// }
 
 //页数据
 pub(crate) struct Page {
     pub(crate) id: Pgid,
-    pub(crate) flags: PageFlag,
+    pub(crate) flags: u16,
     // 个数 2字节，统计叶子节点、非叶子节点、空闲列表页的个数
     pub(crate) count: u16,
     // 4字节，数据是否有溢出，主要在空闲列表上有用

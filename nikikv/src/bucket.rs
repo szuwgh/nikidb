@@ -1,4 +1,8 @@
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Index;
+use std::ptr::null;
 
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
@@ -15,6 +19,7 @@ pub(crate) struct Bucket {
     nodes: HashMap<Pgid, Node>, //tx: Tx,
     pub(crate) weak_tx: Weak<TxImpl>,
     rootNode: Option<Node>,
+    page: *const Page,
 }
 
 #[derive(Clone)]
@@ -39,6 +44,7 @@ impl Bucket {
             nodes: HashMap::new(),
             weak_tx: tx,
             rootNode: None, //NodeImpl::new(is_leaf),
+            page: null(),
         }
     }
 
@@ -82,24 +88,32 @@ impl Bucket {
     }
 
     pub(crate) fn write(&self) -> Vec<u8> {
-        let n = self.rootNode.as_ref().unwrap();
+        let n = self.rootNode.as_ref().unwrap().borrow();
         let size = n.size();
         let mut value = vec![0u8; BucketHeaderSize + size];
 
         let bucket = value.as_ptr() as *mut IBucket;
         unsafe { *bucket = *&self.ibucket }
         let p = Page::from_buf_mut(&mut value[BucketHeaderSize..]);
-        n.write_to(p);
+        n.write(p);
         value
     }
 
-    fn node(&self, pgid: Pgid, parent: Weak<NodeImpl>) -> Node {
-        // self.nodes
+    pub(crate) fn node(&mut self, pgid: Pgid, parent: Weak<NodeImpl>) -> Node {
         if let Some(node) = self.nodes.get(&pgid) {
             return node.clone();
-            //return Ok(PageNode::Node(node.clone()));
         }
-        Rc::new(NodeImpl::new(false))
+
+        let mut n = NodeImpl::new(false).parent(parent.clone()).build();
+        if self.page.is_null() {
+            unsafe {
+                let p = &self.tx().unwrap().db().page(pgid);
+                n.borrow_mut().read(unsafe { &**p });
+            }
+        }
+
+        self.nodes.insert(pgid, n.clone());
+        n
     }
 }
 

@@ -3,9 +3,12 @@ use std::borrow::BorrowMut;
 use crate::bucket::{Bucket, PageNode};
 use crate::error::{NKError, NKResult};
 use crate::node::{Node, NodeImpl};
-use crate::page::{BucketLeafFlag, Page, PageFlag, Pgid};
+use crate::page::{
+    BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageFlag, MetaPageFlag, Page, Pgid,
+};
+use std::sync::Weak;
 pub(crate) struct Cursor<'a> {
-    pub(crate) bucket: &'a Bucket,
+    pub(crate) bucket: &'a mut Bucket,
     stack: Vec<ElemRef>,
 }
 
@@ -38,14 +41,14 @@ impl<'a> Item<'a> {
 impl ElemRef {
     fn is_leaf(&self) -> bool {
         match &self.page_node {
-            PageNode::Node(n) => n.is_leaf,
-            PageNode::Page(p) => self.get_page(p).flags == PageFlag::LeafPageFlag,
+            PageNode::Node(n) => n.borrow().is_leaf,
+            PageNode::Page(p) => self.get_page(p).flags == LeafPageFlag,
         }
     }
 
     fn count(&self) -> usize {
         match &self.page_node {
-            PageNode::Node(n) => n.inodes.len(),
+            PageNode::Node(n) => n.borrow().inodes.len(),
             PageNode::Page(p) => self.get_page(p).count as usize,
         }
     }
@@ -70,7 +73,7 @@ impl ElemRef {
 }
 
 impl<'a> Cursor<'a> {
-    pub(crate) fn new(bucket: &'a Bucket) -> Cursor<'a> {
+    pub(crate) fn new(bucket: &'a mut Bucket) -> Cursor<'a> {
         Self {
             bucket: bucket,
             stack: Vec::new(),
@@ -84,7 +87,13 @@ impl<'a> Cursor<'a> {
                 break;
             }
             let pgid = match &ref_elem.page_node {
-                PageNode::Node(n) => n.inodes.get(ref_elem.index).ok_or("get node fail")?.pgid,
+                PageNode::Node(n) => {
+                    n.borrow()
+                        .inodes
+                        .get(ref_elem.index)
+                        .ok_or("get node fail")?
+                        .pgid
+                }
                 PageNode::Page(p) => {
                     ref_elem
                         .get_page(p)
@@ -226,13 +235,18 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
 
-    fn node(&self) -> NKResult<Node> {
+    fn node(&mut self) -> NKResult<Node> {
         let ref_elem = self.stack.last().ok_or("stack empty")?;
         if ref_elem.is_node() && ref_elem.is_leaf() {
             return Ok(ref_elem.node().expect("get node fail"));
         }
-        let mut n = self.stack.first().unwrap().node();
-        if n.is_none() {}
+        let mut elem = self.stack.first().unwrap();
+        //let mut n = elem.node();
+        let n = match &elem.page_node {
+            PageNode::Node(n) => n.clone(),
+            PageNode::Page(p) => self.bucket.node(elem.get_page(p).id, Weak::new()),
+        };
+
         Err(NKError::ErrIncompatibleValue)
     }
 }

@@ -1,6 +1,7 @@
 use crate::bucket::IBucket;
 use crate::page::{
-    BranchPageElementSize, BucketLeafFlag, LeafPageElementSize, Page, PageFlag, Pgid,
+    BranchPageElementSize, BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageElementSize,
+    LeafPageFlag, MetaPageFlag, Page, Pgid,
 };
 use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
@@ -14,26 +15,46 @@ use std::ops::Sub;
 use std::rc::Rc;
 use std::sync::{Arc, Weak};
 
-pub(crate) type Node = Rc<NodeImpl>;
+pub(crate) type Node = RefCell<NodeImpl>;
 
 fn return_node() -> Node {
-    Rc::new(NodeImpl::new(false))
+    RefCell::new(NodeImpl::new(false))
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct NodeImpl {
+    pub bucket: Weak<Bucket>,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
     pub(crate) parent: Weak<NodeImpl>,
+    unbalanced: bool,
+    spilled: bool,
+    pgid: Pgid,
+    children: Vec<Node>,
 }
 
 impl NodeImpl {
     pub(crate) fn new(is_leaf: bool) -> NodeImpl {
         Self {
-            is_leaf: false,
-            inodes: Vec::new(),
+            //inodes: Vec::new(),
             ..Default::default()
         }
+    }
+
+    pub fn parent(mut self, parent: Weak<NodeImpl>) -> NodeImpl {
+        self.parent = parent;
+        self
+    }
+
+    pub(crate) fn build(self) -> Node {
+        RefCell::new(self)
+    }
+
+    pub(crate) fn child_at(&self, index: usize, parent: Weak<NodeImpl>) -> Node {
+        if self.is_leaf {
+            panic!("invalid childAt{} on a leaf node", index);
+        }
+        self.b
     }
 
     pub(crate) fn size(&self) -> usize {
@@ -53,11 +74,29 @@ impl NodeImpl {
         BranchPageElementSize
     }
 
-    pub(crate) fn write_to(&self, p: &mut Page) -> NKResult<()> {
+    pub(crate) fn read(&mut self, p: &Page) -> NKResult<()> {
+        self.pgid = p.id;
+        self.is_leaf = ((p.flags & LeafPageFlag) != 0);
+        let count = p.count as usize;
+        self.inodes = Vec::with_capacity(count);
+        for i in 0..count {
+            let mut inode = INode::new();
+            if self.is_leaf {
+                let elem = p.leaf_page_element(i);
+                inode.flags = elem.flags;
+                inode.key = elem.key().to_vec();
+                inode.value = elem.value().to_vec();
+            } else {
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn write(&self, p: &mut Page) -> NKResult<()> {
         if self.is_leaf {
-            p.flags = PageFlag::LeafPageFlag;
+            p.flags = LeafPageFlag;
         } else {
-            p.flags = PageFlag::BranchPageFlag;
+            p.flags = BranchPageFlag;
         }
         if self.inodes.len() > 0xFFF {
             panic!("inode overflow: {} (pgid={})", self.inodes.len(), p.id);
@@ -99,10 +138,18 @@ impl NodeImpl {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct INode {
-    flags: u32,
+    pub(crate) flags: u32,
     pub(crate) pgid: Pgid,
-    key: Vec<u8>,
-    value: Vec<u8>,
+    pub(crate) key: Vec<u8>,
+    pub(crate) value: Vec<u8>,
+}
+
+impl INode {
+    fn new() -> INode {
+        Self {
+            ..Default::default()
+        }
+    }
 }
