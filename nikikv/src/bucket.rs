@@ -104,7 +104,7 @@ impl Bucket {
             return node.clone();
         }
 
-        let mut n = NodeImpl::new(false).parent(parent.clone()).build();
+        let mut n = NodeImpl::new(self).parent(parent.clone()).build();
         if self.page.is_null() {
             unsafe {
                 let p = &self.tx().unwrap().db().page(pgid);

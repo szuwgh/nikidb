@@ -1,4 +1,4 @@
-use crate::bucket::IBucket;
+use crate::bucket::{Bucket, IBucket};
 use crate::page::{
     BranchPageElementSize, BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageElementSize,
     LeafPageFlag, MetaPageFlag, Page, Pgid,
@@ -12,18 +12,19 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::ops::Sub;
+use std::ptr::null;
 use std::rc::Rc;
 use std::sync::{Arc, Weak};
 
 pub(crate) type Node = RefCell<NodeImpl>;
 
-fn return_node() -> Node {
-    RefCell::new(NodeImpl::new(false))
-}
+// fn return_node() -> Node {
+//     RefCell::new(NodeImpl::new(false))
+// }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct NodeImpl {
-    pub bucket: Weak<Bucket>,
+    pub(crate) bucket: *const Bucket,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
     pub(crate) parent: Weak<NodeImpl>,
@@ -34,10 +35,16 @@ pub(crate) struct NodeImpl {
 }
 
 impl NodeImpl {
-    pub(crate) fn new(is_leaf: bool) -> NodeImpl {
+    pub(crate) fn new(bucket: *const Bucket) -> NodeImpl {
         Self {
-            //inodes: Vec::new(),
-            ..Default::default()
+            bucket: bucket,
+            is_leaf: false,
+            inodes: Vec::new(),
+            parent: Weak::new(),
+            unbalanced: false,
+            spilled: false,
+            pgid: 0,
+            children: Vec::new(),
         }
     }
 
@@ -54,7 +61,12 @@ impl NodeImpl {
         if self.is_leaf {
             panic!("invalid childAt{} on a leaf node", index);
         }
-        self.b
+        self.bucket_mut().node(self.inodes[index].pgid, parent)
+        //self.b
+    }
+
+    fn bucket_mut(&self) -> &mut Bucket {
+        unsafe { &mut *(self.bucket as *mut Bucket) }
     }
 
     pub(crate) fn size(&self) -> usize {

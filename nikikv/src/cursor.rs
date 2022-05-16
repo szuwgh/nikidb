@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::cell::RefCell;
 
 use crate::bucket::{Bucket, PageNode};
 use crate::error::{NKError, NKResult};
@@ -6,6 +7,7 @@ use crate::node::{Node, NodeImpl};
 use crate::page::{
     BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageFlag, MetaPageFlag, Page, Pgid,
 };
+use std::rc::Rc;
 use std::sync::Weak;
 pub(crate) struct Cursor<'a> {
     pub(crate) bucket: &'a mut Bucket,
@@ -241,11 +243,14 @@ impl<'a> Cursor<'a> {
             return Ok(ref_elem.node().expect("get node fail"));
         }
         let mut elem = self.stack.first().unwrap();
-        //let mut n = elem.node();
-        let n = match &elem.page_node {
+        let mut n = match &elem.page_node {
             PageNode::Node(n) => n.clone(),
             PageNode::Page(p) => self.bucket.node(elem.get_page(p).id, Weak::new()),
         };
+
+        for e in self.stack[..self.stack.len() - 1].iter() {
+            n = n.borrow().child_at(e.index, RefCell::downgrade(&n));
+        }
 
         Err(NKError::ErrIncompatibleValue)
     }
