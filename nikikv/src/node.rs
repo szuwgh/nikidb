@@ -14,9 +14,9 @@ use std::mem::size_of;
 use std::ops::Sub;
 use std::ptr::null;
 use std::rc::Rc;
-use std::sync::{Arc, Weak};
+use std::rc::Weak;
 
-pub(crate) type Node = RefCell<NodeImpl>;
+pub(crate) type Node = Rc<RefCell<NodeImpl>>;
 
 // fn return_node() -> Node {
 //     RefCell::new(NodeImpl::new(false))
@@ -27,7 +27,7 @@ pub(crate) struct NodeImpl {
     pub(crate) bucket: *const Bucket,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
-    pub(crate) parent: Weak<NodeImpl>,
+    pub(crate) parent: Weak<RefCell<NodeImpl>>,
     unbalanced: bool,
     spilled: bool,
     pgid: Pgid,
@@ -48,21 +48,20 @@ impl NodeImpl {
         }
     }
 
-    pub fn parent(mut self, parent: Weak<NodeImpl>) -> NodeImpl {
+    pub fn parent(mut self, parent: Weak<RefCell<NodeImpl>>) -> NodeImpl {
         self.parent = parent;
         self
     }
 
     pub(crate) fn build(self) -> Node {
-        RefCell::new(self)
+        Rc::new(RefCell::new(self))
     }
 
-    pub(crate) fn child_at(&self, index: usize, parent: Weak<NodeImpl>) -> Node {
+    pub(crate) fn child_at(&self, index: usize, parent: Weak<RefCell<NodeImpl>>) -> Node {
         if self.is_leaf {
             panic!("invalid childAt{} on a leaf node", index);
         }
         self.bucket_mut().node(self.inodes[index].pgid, parent)
-        //self.b
     }
 
     fn bucket_mut(&self) -> &mut Bucket {
@@ -86,7 +85,7 @@ impl NodeImpl {
         BranchPageElementSize
     }
 
-    pub(crate) fn read(&mut self, p: &Page) -> NKResult<()> {
+    pub(crate) fn read(&mut self, p: &Page) {
         self.pgid = p.id;
         self.is_leaf = ((p.flags & LeafPageFlag) != 0);
         let count = p.count as usize;
@@ -101,10 +100,31 @@ impl NodeImpl {
             } else {
             }
         }
-        Ok(())
     }
 
-    pub(crate) fn write(&self, p: &mut Page) -> NKResult<()> {
+    pub(super) fn bucket(&self) -> &Bucket {
+        assert!(!self.bucket.is_null());
+        unsafe { &*self.bucket }
+    }
+
+    pub(crate) fn put(
+        &mut self,
+        old_key: &[u8],
+        new_key: &[u8],
+        value: &[u8],
+        pgid: Pgid,
+        flags: u32,
+    ) {
+        if pgid > self.bucket().tx().unwrap().meta.pgid {
+            panic!(
+                "pgid {} above high water mark {}",
+                pgid,
+                self.bucket().tx().unwrap().meta.pgid,
+            )
+        }else if old_key.len()
+    }
+
+    pub(crate) fn write(&self, p: &mut Page) {
         if self.is_leaf {
             p.flags = LeafPageFlag;
         } else {
@@ -115,7 +135,7 @@ impl NodeImpl {
         }
         p.count = self.inodes.len() as u16;
         if p.count == 0 {
-            return Ok(());
+            return;
         }
 
         let mut buf_ptr = unsafe {
@@ -146,7 +166,6 @@ impl NodeImpl {
                 buf_ptr = buf_ptr.add(vlen);
             }
         }
-        Ok(())
     }
 }
 

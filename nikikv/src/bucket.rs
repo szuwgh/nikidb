@@ -10,14 +10,14 @@ use crate::node::{Node, NodeImpl};
 use crate::page::{BucketLeafFlag, Page, Pgid};
 use crate::tx::TxImpl;
 use std::mem::size_of;
-use std::rc::Rc;
-use std::sync::{Arc, Weak};
+use std::rc::{Rc, Weak};
+use std::sync::{Arc, Weak as ArcWeak};
 pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>, //tx: Tx,
-    pub(crate) weak_tx: Weak<TxImpl>,
+    pub(crate) weak_tx: ArcWeak<TxImpl>,
     rootNode: Option<Node>,
     page: *const Page,
 }
@@ -35,7 +35,7 @@ impl From<Node> for PageNode {
 }
 
 impl Bucket {
-    pub(crate) fn new(root: Pgid, is_leaf: bool, tx: Weak<TxImpl>) -> Bucket {
+    pub(crate) fn new(root: Pgid, is_leaf: bool, tx: ArcWeak<TxImpl>) -> Bucket {
         Self {
             ibucket: IBucket {
                 root: root,
@@ -67,8 +67,6 @@ impl Bucket {
 
     fn cursor(&mut self) -> Cursor {
         Cursor::new(self)
-        //    let item =
-        // Cursor { bucket: self }
     }
 
     pub(crate) fn put(key: &[u8], value: &[u8]) {}
@@ -99,17 +97,15 @@ impl Bucket {
         value
     }
 
-    pub(crate) fn node(&mut self, pgid: Pgid, parent: Weak<NodeImpl>) -> Node {
+    pub(crate) fn node(&mut self, pgid: Pgid, parent: Weak<RefCell<NodeImpl>>) -> Node {
         if let Some(node) = self.nodes.get(&pgid) {
             return node.clone();
         }
 
         let mut n = NodeImpl::new(self).parent(parent.clone()).build();
         if self.page.is_null() {
-            unsafe {
-                let p = &self.tx().unwrap().db().page(pgid);
-                n.borrow_mut().read(unsafe { &**p });
-            }
+            let p = &self.tx().unwrap().db().page(pgid);
+            (*n).borrow_mut().read(unsafe { &**p });
         }
 
         self.nodes.insert(pgid, n.clone());

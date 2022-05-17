@@ -1,6 +1,8 @@
 use crate::bucket::Bucket;
 use crate::db::DBImpl;
+use crate::page::Meta;
 use std::cell::RefCell;
+use std::ptr::null;
 use std::sync::{Arc, RwLock, Weak};
 
 pub(crate) struct Tx(pub(crate) Arc<TxImpl>);
@@ -20,6 +22,7 @@ impl Tx {
 pub(crate) struct TxImpl {
     dbImpl: Arc<DBImpl>,
     pub(crate) root: RefCell<Bucket>,
+    pub(crate) meta: Meta,
 }
 
 impl TxImpl {
@@ -27,6 +30,7 @@ impl TxImpl {
         let tx = Self {
             dbImpl: db.clone(),
             root: RefCell::new(Bucket::new(0, false, Weak::new())),
+            meta: db.meta(),
         };
         tx
     }

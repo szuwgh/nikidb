@@ -1,4 +1,4 @@
-use std::borrow::BorrowMut;
+use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 
 use crate::bucket::{Bucket, PageNode};
@@ -7,8 +7,7 @@ use crate::node::{Node, NodeImpl};
 use crate::page::{
     BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageFlag, MetaPageFlag, Page, Pgid,
 };
-use std::rc::Rc;
-use std::sync::Weak;
+use std::rc::{Rc, Weak};
 pub(crate) struct Cursor<'a> {
     pub(crate) bucket: &'a mut Bucket,
     stack: Vec<ElemRef>,
@@ -43,14 +42,14 @@ impl<'a> Item<'a> {
 impl ElemRef {
     fn is_leaf(&self) -> bool {
         match &self.page_node {
-            PageNode::Node(n) => n.borrow().is_leaf,
+            PageNode::Node(n) => (**n).borrow().is_leaf,
             PageNode::Page(p) => self.get_page(p).flags == LeafPageFlag,
         }
     }
 
     fn count(&self) -> usize {
         match &self.page_node {
-            PageNode::Node(n) => n.borrow().inodes.len(),
+            PageNode::Node(n) => (**n).borrow().inodes.len(),
             PageNode::Page(p) => self.get_page(p).count as usize,
         }
     }
@@ -90,7 +89,8 @@ impl<'a> Cursor<'a> {
             }
             let pgid = match &ref_elem.page_node {
                 PageNode::Node(n) => {
-                    n.borrow()
+                    (**n)
+                        .borrow()
                         .inodes
                         .get(ref_elem.index)
                         .ok_or("get node fail")?
@@ -249,7 +249,8 @@ impl<'a> Cursor<'a> {
         };
 
         for e in self.stack[..self.stack.len() - 1].iter() {
-            n = n.borrow().child_at(e.index, RefCell::downgrade(&n));
+            let child = (*n).borrow_mut().child_at(e.index, Rc::downgrade(&n));
+            n = child;
         }
 
         Err(NKError::ErrIncompatibleValue)

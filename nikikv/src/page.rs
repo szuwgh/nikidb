@@ -26,12 +26,6 @@ pub(crate) const FreeListPageFlag: u16 = 0x10;
 
 pub(crate) const BucketLeafFlag: u32 = 0x01;
 
-// impl PartialEq for PageFlag {
-//     fn eq(&self, other: &PageFlag) -> bool {
-//         *self as u16 == *other as u16
-//     }
-// }
-
 //页数据
 pub(crate) struct Page {
     pub(crate) id: Pgid,
@@ -95,6 +89,7 @@ impl LeafPageElement {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct Meta {
     pub(crate) magic: u32,
     pub(crate) version: u32,

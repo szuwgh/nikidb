@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
+use std::ptr::null;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -34,6 +35,8 @@ pub(crate) struct DBImpl {
     file: File,
     page_size: u32,
     mmap: Option<memmap::Mmap>,
+    meta0: *const Meta,
+    meta1: *const Meta,
 }
 
 pub struct Options {
@@ -84,6 +87,8 @@ impl DBImpl {
             file: file,
             page_size: 0,
             mmap: None,
+            meta0: null(),
+            meta1: null(),
         }
     }
 
@@ -143,7 +148,7 @@ impl DBImpl {
         Page::from_buf(&buf[(id * self.page_size) as usize..])
     }
 
-    pub fn page(&self, id: Pgid) -> *const Page {
+    pub(crate) fn page(&self, id: Pgid) -> *const Page {
         self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32)
     }
 
@@ -197,8 +202,28 @@ impl DBImpl {
         let meta1 = self.page_in_buffer(&nmmap, 1).meta();
         meta0.validate()?;
         meta1.validate()?;
+        self.meta0 = meta0;
+        self.meta1 = meta1;
         self.mmap = Some(nmmap);
         Ok(())
+    }
+
+    pub(crate) fn meta(&self) -> Meta {
+        unsafe {
+            let mut metaA = self.meta0;
+            let mut metaB = self.meta1;
+            if (*self.meta1).txid > (*self.meta0).txid {
+                metaA = self.meta1;
+                metaB = self.meta0;
+            }
+            if (*metaA).validate().is_ok() {
+                return *metaA.clone();
+            }
+            if (*metaB).validate().is_ok() {
+                return *metaB.clone();
+            }
+            panic!("niki.DB.meta(): invalid meta pages")
+        }
     }
 
     pub fn update(&self) {}
