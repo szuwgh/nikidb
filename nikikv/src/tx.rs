@@ -1,9 +1,12 @@
 use crate::bucket::Bucket;
 use crate::db::DBImpl;
 use crate::page::Meta;
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::ptr::null;
 use std::sync::{Arc, RwLock, Weak};
+
+pub(crate) type Txid = u64;
 
 pub(crate) struct Tx(pub(crate) Arc<TxImpl>);
 
@@ -14,8 +17,12 @@ impl Tx {
 
     pub(crate) fn init(&mut self) {
         let r = self.0.clone();
-        let mut bucket = r.root.borrow_mut();
-        bucket.weak_tx = Arc::downgrade(&self.0);
+
+        r.root.borrow_mut().weak_tx = Arc::downgrade(&self.0);
+    }
+
+    pub(crate) fn create_bucket(&mut self, name: &[u8]) {
+        self.0.root.borrow_mut().create_bucket(name);
     }
 }
 
@@ -32,10 +39,15 @@ impl TxImpl {
             root: RefCell::new(Bucket::new(0, false, Weak::new())),
             meta: db.meta(),
         };
+        tx.root.borrow_mut().ibucket = tx.meta.root.clone();
         tx
     }
 
     pub(crate) fn db(&self) -> Arc<DBImpl> {
         self.dbImpl.clone()
     }
+
+    // pub(crate) fn create_bucket(&mut self, name: &[u8]) {
+    //     self.root.borrow_mut().create_bucket(name);
+    // }
 }

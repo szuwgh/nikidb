@@ -1,4 +1,5 @@
 use crate::bucket::IBucket;
+use crate::tx::Txid;
 use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
 use fnv::FnvHasher;
@@ -14,8 +15,6 @@ pub(crate) const LeafPageElementSize: usize = size_of::<LeafPageElement>();
 pub(crate) const BranchPageElementSize: usize = size_of::<BranchPageElement>();
 
 pub(crate) type Pgid = u64;
-
-pub(crate) type Txid = u64;
 
 pub(crate) type PageFlag = u16;
 

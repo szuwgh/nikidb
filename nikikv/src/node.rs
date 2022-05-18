@@ -32,6 +32,7 @@ pub(crate) struct NodeImpl {
     spilled: bool,
     pgid: Pgid,
     children: Vec<Node>,
+    key: Option<Vec<u8>>,
 }
 
 impl NodeImpl {
@@ -45,6 +46,7 @@ impl NodeImpl {
             spilled: false,
             pgid: 0,
             children: Vec::new(),
+            key: None,
         }
     }
 
@@ -87,7 +89,7 @@ impl NodeImpl {
 
     pub(crate) fn read(&mut self, p: &Page) {
         self.pgid = p.id;
-        self.is_leaf = ((p.flags & LeafPageFlag) != 0);
+        self.is_leaf = (p.flags & LeafPageFlag) != 0;
         let count = p.count as usize;
         self.inodes = Vec::with_capacity(count);
         for i in 0..count {
@@ -98,7 +100,17 @@ impl NodeImpl {
                 inode.key = elem.key().to_vec();
                 inode.value = elem.value().to_vec();
             } else {
+                let elem = p.branch_page_element(i);
+                inode.pgid = elem.pgid;
+                inode.key = elem.key().to_vec();
             }
+            assert!(inode.key.len() > 0, "read: zero-length inode key");
+        }
+
+        if self.inodes.len() > 0 {
+            self.key = Some(self.inodes.first().unwrap().key.clone());
+        } else {
+            self.key = None
         }
     }
 
@@ -121,7 +133,28 @@ impl NodeImpl {
                 pgid,
                 self.bucket().tx().unwrap().meta.pgid,
             )
-        }else if old_key.len()
+        } else if old_key.len() <= 0 {
+            panic!("put: zero-length old key")
+        } else if new_key.len() <= 0 {
+            panic!("put: zero-length new key")
+        }
+        let (exact, index) = match self
+            .inodes
+            .binary_search_by(|inode| inode.key.as_slice().cmp(old_key))
+        {
+            Ok(v) => (true, v),
+            Err(e) => (false, e),
+        };
+        if !exact {
+            self.inodes.insert(index, INode::new());
+        }
+
+        let inode = self.inodes.get_mut(index).unwrap();
+        inode.flags = flags;
+        inode.key = new_key.to_vec();
+        inode.value = value.to_vec();
+        inode.pgid = pgid;
+        assert!(inode.key.len() > 0, "put: zero-length inode key")
     }
 
     pub(crate) fn write(&self, p: &mut Page) {

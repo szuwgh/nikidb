@@ -237,7 +237,7 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
 
-    fn node(&mut self) -> NKResult<Node> {
+    pub(crate) fn node(&mut self) -> NKResult<Node> {
         let ref_elem = self.stack.last().ok_or("stack empty")?;
         if ref_elem.is_node() && ref_elem.is_leaf() {
             return Ok(ref_elem.node().expect("get node fail"));
@@ -264,6 +264,6 @@ mod tests {
     fn test_sort_search() {
         let s = [0, 1, 1, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
 
-        println!("{:?}", s.binary_search(&60));
+        println!("{:?}", s.binary_search(&4));
     }
 }

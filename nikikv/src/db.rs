@@ -1,7 +1,7 @@
 use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
 use crate::page::{FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, Page, Pgid};
-use crate::tx::{Tx, TxImpl};
+use crate::tx::{Tx, TxImpl, Txid};
 use crate::{magic, version};
 use page_size;
 use std::borrow::BorrowMut;
@@ -39,6 +39,7 @@ pub(crate) struct DBImpl {
     meta1: *const Meta,
 }
 
+#[derive(Clone, Copy)]
 pub struct Options {
     no_grow_sync: bool,
 
@@ -57,7 +58,7 @@ pub static DEFAULT_OPTIONS: Options = Options {
 };
 
 impl DBImpl {
-    pub fn open(db_path: &str, options: Options) -> NKResult<DBImpl> {
+    pub fn open(db_path: &str, options: Options) -> NKResult<DB> {
         let f = OpenOptions::new()
             .read(true)
             .write(true)
@@ -79,7 +80,7 @@ impl DBImpl {
             println!("read:checksum {}", m.checksum);
         }
         db.mmap(options.initial_mmap_size)?;
-        Ok(db)
+        Ok(DB(Arc::new(db)))
     }
 
     fn new(file: File) -> DBImpl {
@@ -107,7 +108,7 @@ impl DBImpl {
             m.freelist = 2;
             m.root = IBucket::new(3);
             m.pgid = 4;
-            m.txid = 1;
+            m.txid = i as Txid;
             m.checksum = m.sum64();
         }
 
@@ -234,9 +235,13 @@ mod tests {
     use super::*;
     #[test]
     fn test_db_open() {
-        //DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        //
     }
 
     #[test]
-    fn test_tx() {}
+    fn test_tx_create_bucket() {
+        let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let mut tx = db.begin();
+        tx.create_bucket("aaa".as_bytes());
+    }
 }

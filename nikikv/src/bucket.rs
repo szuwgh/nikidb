@@ -49,6 +49,8 @@ impl Bucket {
     }
 
     pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<Bucket> {
+        let tx_clone = self.weak_tx.clone();
+
         let mut c = self.cursor();
         let item = c.seek(key)?;
         if item.key().eq(&Some(key)) {
@@ -59,8 +61,12 @@ impl Bucket {
             }
         }
 
-        let bucket = Bucket::new(0, true, self.weak_tx.clone());
+        let mut bucket = Bucket::new(0, true, tx_clone);
         let value = bucket.write();
+
+        (*c.node()?)
+            .borrow_mut()
+            .put(key, key, value.as_slice(), 0, BucketLeafFlag);
 
         Ok(bucket)
     }
