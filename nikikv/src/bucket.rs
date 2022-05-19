@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Index;
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
@@ -43,7 +43,7 @@ impl Bucket {
             },
             nodes: HashMap::new(),
             weak_tx: tx,
-            rootNode: None, //NodeImpl::new(is_leaf),
+            rootNode: Some(NodeImpl::new(null_mut()).leaf(true).build()),
             page: null(),
         }
     }
@@ -63,10 +63,17 @@ impl Bucket {
 
         let mut bucket = Bucket::new(0, true, tx_clone);
         let value = bucket.write();
+        println!("node put");
 
         (*c.node()?)
             .borrow_mut()
             .put(key, key, value.as_slice(), 0, BucketLeafFlag);
+        println!("return bucket");
+
+        let mut c = self.cursor();
+        let item = c.seek(key)?;
+
+        println!("key:{:?}", item.key());
 
         Ok(bucket)
     }
@@ -81,6 +88,7 @@ impl Bucket {
 
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
         if let Some(node) = self.nodes.get(&id) {
+            println!("get from nodes{}", id);
             return Ok(PageNode::Node(node.clone()));
         }
         let page = self.tx().unwrap().db().page(id);
@@ -94,26 +102,29 @@ impl Bucket {
     pub(crate) fn write(&self) -> Vec<u8> {
         let n = self.rootNode.as_ref().unwrap().borrow();
         let size = n.size();
+        println!("size:{}", size);
         let mut value = vec![0u8; BucketHeaderSize + size];
 
         let bucket = value.as_ptr() as *mut IBucket;
-        unsafe { *bucket = *&self.ibucket }
+        unsafe {
+            *bucket = *&self.ibucket;
+        }
+
         let p = Page::from_buf_mut(&mut value[BucketHeaderSize..]);
         n.write(p);
         value
     }
 
     pub(crate) fn node(&mut self, pgid: Pgid, parent: Weak<RefCell<NodeImpl>>) -> Node {
+        println!("bucket node pgid:{}", pgid);
         if let Some(node) = self.nodes.get(&pgid) {
             return node.clone();
         }
-
-        let mut n = NodeImpl::new(self).parent(parent.clone()).build();
+        let n = NodeImpl::new(self).parent(parent.clone()).build();
         if self.page.is_null() {
-            let p = &self.tx().unwrap().db().page(pgid);
-            (*n).borrow_mut().read(unsafe { &**p });
+            let p = self.tx().unwrap().db().page(pgid);
+            (*n).borrow_mut().read(unsafe { &*p });
         }
-
         self.nodes.insert(pgid, n.clone());
         n
     }

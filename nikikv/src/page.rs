@@ -25,6 +25,7 @@ pub(crate) const FreeListPageFlag: u16 = 0x10;
 
 pub(crate) const BucketLeafFlag: u32 = 0x01;
 
+#[repr(C)]
 //页数据
 pub(crate) struct Page {
     pub(crate) id: Pgid,
@@ -36,6 +37,7 @@ pub(crate) struct Page {
     ptr: PhantomData<u8>,
 }
 
+#[repr(C)]
 pub(crate) struct BranchPageElement {
     pub(crate) pos: u32, //存储键相对于当前页面数据部分的偏移量
     pub(crate) ksize: u32,
@@ -57,6 +59,7 @@ impl BranchPageElement {
     }
 }
 
+#[repr(C)]
 pub(crate) struct LeafPageElement {
     pub(crate) flags: u32, //标志位，为0的时候表示就是普通的叶子节点，而为1的时候表示是子bucket，子bucket后面再展开说明。
     pub(crate) pos: u32,   //存储键相对于当前页面数据部分的偏移量
@@ -88,6 +91,7 @@ impl LeafPageElement {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub(crate) struct Meta {
     pub(crate) magic: u32,
@@ -221,5 +225,11 @@ mod tests {
         let v1 = a1.leaf_page_elements_mut();
         println!("v1[0].pos:{:?}", v1[0].pos);
         assert!(v1[0].pos == 200);
+    }
+
+    #[test]
+    fn test_page_size() {
+        let size = Page::header_size();
+        println!("size:{}", size);
     }
 }

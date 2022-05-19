@@ -3,7 +3,7 @@ use std::cell::RefCell;
 
 use crate::bucket::{Bucket, PageNode};
 use crate::error::{NKError, NKResult};
-use crate::node::{Node, NodeImpl};
+use crate::node::{INode, Node, NodeImpl};
 use crate::page::{
     BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageFlag, MetaPageFlag, Page, Pgid,
 };
@@ -22,9 +22,9 @@ pub(crate) struct ElemRef {
 pub(crate) struct Item<'a>(Option<&'a [u8]>, Option<&'a [u8]>, u32);
 
 impl<'a> Item<'a> {
-    fn from(key: &'a [u8], value: &'a [u8], flags: u32) -> Item<'a> {
-        Self(Some(key), Some(value), flags)
-    }
+    // fn from(key: &'a [u8], value: &'a [u8], flags: u32) -> Item<'a> {
+    //     Self(Some(key), Some(value), flags)
+    // }
 
     fn null() -> Item<'a> {
         Self(None, None, 0)
@@ -38,6 +38,9 @@ impl<'a> Item<'a> {
         self.2
     }
 }
+
+
+impl <'a> From<&ElemRef> for 
 
 impl ElemRef {
     fn is_leaf(&self) -> bool {
@@ -168,17 +171,26 @@ impl<'a> Cursor<'a> {
         self.key_value()
     }
 
-    fn key_value(&mut self) -> NKResult<Item<'a>> {
+    fn key_value(&self) -> NKResult<Item<'a>> {
         let ref_elem = self.stack.last().ok_or("stack empty")?;
-        match &ref_elem.page_node {
-            PageNode::Node(n) => Ok(Item::null()),
-            PageNode::Page(p) => {
-                let elem = ref_elem.get_page(p).leaf_page_element(ref_elem.index);
-                Ok(Item::from(
-                    unsafe { &*(elem.key() as *const [u8]) },
-                    unsafe { &*(elem.value() as *const [u8]) },
-                    elem.flags,
-                ))
+        unsafe {
+            match &ref_elem.page_node {
+                PageNode::Node(n) => {
+                    let inode = (**n).borrow().inodes.get(ref_elem.index).unwrap();
+                    Ok(Item::from(
+                        inode.key.as_slice(),
+                        inode.value.as_slice(),
+                        inode.flags,
+                    ))
+                }
+                PageNode::Page(p) => {
+                    let elem = ref_elem.get_page(p).leaf_page_element(ref_elem.index);
+                    Ok(Item::from(
+                        &*(elem.key() as *const [u8]),
+                        &*(elem.value() as *const [u8]),
+                        elem.flags,
+                    ))
+                }
             }
         }
     }
@@ -192,7 +204,9 @@ impl<'a> Cursor<'a> {
         };
         self.stack.push(elem_ref.clone());
         if elem_ref.is_leaf() {
+            println!("is leaf");
             self.nsearch(key)?;
+            return Ok(());
         }
         //
         match &elem_ref.page_node {
@@ -206,7 +220,17 @@ impl<'a> Cursor<'a> {
     fn nsearch(&mut self, key: &[u8]) -> NKResult<()> {
         let e = self.stack.last_mut().ok_or("stack empty")?;
         match &e.page_node {
-            PageNode::Node(n) => {}
+            PageNode::Node(n) => {
+                let index = match (**n)
+                    .borrow()
+                    .inodes
+                    .binary_search_by(|inode| inode.key.as_slice().cmp(key))
+                {
+                    Ok(v) => (v),
+                    Err(e) => (e),
+                };
+                e.index = index;
+            }
             PageNode::Page(p) => {
                 let inodes = e.get_page(p).leaf_page_elements();
                 let index = match inodes.binary_search_by(|inode| inode.key().cmp(key)) {
@@ -253,7 +277,7 @@ impl<'a> Cursor<'a> {
             n = child;
         }
 
-        Err(NKError::ErrIncompatibleValue)
+        Ok(n)
     }
 }
 

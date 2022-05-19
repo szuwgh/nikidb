@@ -24,7 +24,7 @@ pub(crate) type Node = Rc<RefCell<NodeImpl>>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct NodeImpl {
-    pub(crate) bucket: *const Bucket,
+    pub(crate) bucket: *mut Bucket,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
     pub(crate) parent: Weak<RefCell<NodeImpl>>,
@@ -36,7 +36,7 @@ pub(crate) struct NodeImpl {
 }
 
 impl NodeImpl {
-    pub(crate) fn new(bucket: *const Bucket) -> NodeImpl {
+    pub(crate) fn new(bucket: *mut Bucket) -> NodeImpl {
         Self {
             bucket: bucket,
             is_leaf: false,
@@ -48,6 +48,11 @@ impl NodeImpl {
             children: Vec::new(),
             key: None,
         }
+    }
+
+    pub fn leaf(mut self, is_leaf: bool) -> NodeImpl {
+        self.is_leaf = is_leaf;
+        self
     }
 
     pub fn parent(mut self, parent: Weak<RefCell<NodeImpl>>) -> NodeImpl {
@@ -67,7 +72,7 @@ impl NodeImpl {
     }
 
     fn bucket_mut(&self) -> &mut Bucket {
-        unsafe { &mut *(self.bucket as *mut Bucket) }
+        unsafe { &mut *self.bucket }
     }
 
     pub(crate) fn size(&self) -> usize {
@@ -127,6 +132,7 @@ impl NodeImpl {
         pgid: Pgid,
         flags: u32,
     ) {
+        println!("inside put");
         if pgid > self.bucket().tx().unwrap().meta.pgid {
             panic!(
                 "pgid {} above high water mark {}",
@@ -145,6 +151,7 @@ impl NodeImpl {
             Ok(v) => (true, v),
             Err(e) => (false, e),
         };
+        println!("exact:{},index:{}", exact, index);
         if !exact {
             self.inodes.insert(index, INode::new());
         }
@@ -167,6 +174,7 @@ impl NodeImpl {
             panic!("inode overflow: {} (pgid={})", self.inodes.len(), p.id);
         }
         p.count = self.inodes.len() as u16;
+        println!("p.count:{}", p.count);
         if p.count == 0 {
             return;
         }
@@ -215,5 +223,16 @@ impl INode {
         Self {
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr::null_mut;
+
+    use super::*;
+    #[test]
+    fn test_node_new() {
+        let n = NodeImpl::new(null_mut()).build();
     }
 }

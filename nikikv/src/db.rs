@@ -68,6 +68,7 @@ impl DBImpl {
         let size = f.metadata().map_err(|e| NKError::DBOpenFail(e))?.len();
         let mut db = Self::new(f);
         if size == 0 {
+            println!("init db");
             db.init()?;
         } else {
             let mut buf = vec![0; 0x1000];
@@ -191,6 +192,7 @@ impl DBImpl {
             size = min_size;
         }
         min_size = self.mmap_size(size)?;
+        println!("min_size:{}", min_size);
         // let  munmap =
         let nmmap = unsafe {
             mmap_opts

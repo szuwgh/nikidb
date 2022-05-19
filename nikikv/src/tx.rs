@@ -46,8 +46,4 @@ impl TxImpl {
     pub(crate) fn db(&self) -> Arc<DBImpl> {
         self.dbImpl.clone()
     }
-
-    // pub(crate) fn create_bucket(&mut self, name: &[u8]) {
-    //     self.root.borrow_mut().create_bucket(name);
-    // }
 }
