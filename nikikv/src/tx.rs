@@ -24,6 +24,8 @@ impl Tx {
     pub(crate) fn create_bucket(&mut self, name: &[u8]) {
         self.0.root.borrow_mut().create_bucket(name);
     }
+
+    pub(crate) fn commit() {}
 }
 
 pub(crate) struct TxImpl {

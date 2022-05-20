@@ -12,7 +12,7 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::ops::Sub;
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::rc::Weak;
 
@@ -30,7 +30,7 @@ pub(crate) struct NodeImpl {
     pub(crate) parent: Weak<RefCell<NodeImpl>>,
     unbalanced: bool,
     spilled: bool,
-    pgid: Pgid,
+    pub(crate) pgid: Pgid,
     children: Vec<Node>,
     key: Option<Vec<u8>>,
 }
@@ -132,7 +132,6 @@ impl NodeImpl {
         pgid: Pgid,
         flags: u32,
     ) {
-        println!("inside put");
         if pgid > self.bucket().tx().unwrap().meta.pgid {
             panic!(
                 "pgid {} above high water mark {}",
@@ -151,11 +150,9 @@ impl NodeImpl {
             Ok(v) => (true, v),
             Err(e) => (false, e),
         };
-        println!("exact:{},index:{}", exact, index);
         if !exact {
             self.inodes.insert(index, INode::new());
         }
-
         let inode = self.inodes.get_mut(index).unwrap();
         inode.flags = flags;
         inode.key = new_key.to_vec();
@@ -174,7 +171,6 @@ impl NodeImpl {
             panic!("inode overflow: {} (pgid={})", self.inodes.len(), p.id);
         }
         p.count = self.inodes.len() as u16;
-        println!("p.count:{}", p.count);
         if p.count == 0 {
             return;
         }
@@ -208,6 +204,8 @@ impl NodeImpl {
             }
         }
     }
+
+    pub(crate) fn spill() {}
 }
 
 #[derive(Clone, Debug, Default)]

@@ -18,8 +18,9 @@ pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>, //tx: Tx,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
-    rootNode: Option<Node>,
+    root_node: Option<Node>,
     page: *const Page,
+    buckets: HashMap<Vec<u8>, Node>,
 }
 
 #[derive(Clone)]
@@ -43,8 +44,9 @@ impl Bucket {
             },
             nodes: HashMap::new(),
             weak_tx: tx,
-            rootNode: Some(NodeImpl::new(null_mut()).leaf(true).build()),
+            root_node: Some(NodeImpl::new(null_mut()).leaf(true).build()),
             page: null(),
+            buckets: HashMap::new(),
         }
     }
 
@@ -63,17 +65,10 @@ impl Bucket {
 
         let mut bucket = Bucket::new(0, true, tx_clone);
         let value = bucket.write();
-        println!("node put");
 
         (*c.node()?)
             .borrow_mut()
             .put(key, key, value.as_slice(), 0, BucketLeafFlag);
-        println!("return bucket");
-
-        let mut c = self.cursor();
-        let item = c.seek(key)?;
-
-        println!("key:{:?}", item.key());
 
         Ok(bucket)
     }
@@ -88,7 +83,6 @@ impl Bucket {
 
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
         if let Some(node) = self.nodes.get(&id) {
-            println!("get from nodes{}", id);
             return Ok(PageNode::Node(node.clone()));
         }
         let page = self.tx().unwrap().db().page(id);
@@ -100,7 +94,7 @@ impl Bucket {
     }
 
     pub(crate) fn write(&self) -> Vec<u8> {
-        let n = self.rootNode.as_ref().unwrap().borrow();
+        let n = self.root_node.as_ref().unwrap().borrow();
         let size = n.size();
         println!("size:{}", size);
         let mut value = vec![0u8; BucketHeaderSize + size];
@@ -116,7 +110,6 @@ impl Bucket {
     }
 
     pub(crate) fn node(&mut self, pgid: Pgid, parent: Weak<RefCell<NodeImpl>>) -> Node {
-        println!("bucket node pgid:{}", pgid);
         if let Some(node) = self.nodes.get(&pgid) {
             return node.clone();
         }

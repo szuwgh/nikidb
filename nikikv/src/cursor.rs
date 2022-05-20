@@ -22,9 +22,9 @@ pub(crate) struct ElemRef {
 pub(crate) struct Item<'a>(Option<&'a [u8]>, Option<&'a [u8]>, u32);
 
 impl<'a> Item<'a> {
-    // fn from(key: &'a [u8], value: &'a [u8], flags: u32) -> Item<'a> {
-    //     Self(Some(key), Some(value), flags)
-    // }
+    fn from(key: &'a [u8], value: &'a [u8], flags: u32) -> Item<'a> {
+        Self(Some(key), Some(value), flags)
+    }
 
     fn null() -> Item<'a> {
         Self(None, None, 0)
@@ -38,9 +38,6 @@ impl<'a> Item<'a> {
         self.2
     }
 }
-
-
-impl <'a> From<&ElemRef> for 
 
 impl ElemRef {
     fn is_leaf(&self) -> bool {
@@ -176,14 +173,15 @@ impl<'a> Cursor<'a> {
         unsafe {
             match &ref_elem.page_node {
                 PageNode::Node(n) => {
-                    let inode = (**n).borrow().inodes.get(ref_elem.index).unwrap();
+                    let n = (**n).borrow();
+                    let inode = n.inodes.get(ref_elem.index).unwrap();
                     Ok(Item::from(
-                        inode.key.as_slice(),
-                        inode.value.as_slice(),
+                        &*(inode.key.as_slice() as *const [u8]),
+                        &*(inode.value.as_slice() as *const [u8]),
                         inode.flags,
                     ))
                 }
-                PageNode::Page(p) => {
+                PageNode::Page(ref p) => {
                     let elem = ref_elem.get_page(p).leaf_page_element(ref_elem.index);
                     Ok(Item::from(
                         &*(elem.key() as *const [u8]),
@@ -202,9 +200,9 @@ impl<'a> Cursor<'a> {
             page_node: page_node,
             index: 0,
         };
+
         self.stack.push(elem_ref.clone());
         if elem_ref.is_leaf() {
-            println!("is leaf");
             self.nsearch(key)?;
             return Ok(());
         }
