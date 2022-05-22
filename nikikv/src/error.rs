@@ -22,6 +22,12 @@ pub(crate) enum NKError {
     ErrIncompatibleValue,
     #[error("{0} bucket exists")]
     ErrBucketExists(String),
+    #[error("key required")]
+    ErrKeyRequired,
+    #[error("key too large")]
+    ErrKeyTooLarge,
+    #[error("value too large")]
+    ErrValueTooLarge,
 }
 
 impl From<&str> for NKError {

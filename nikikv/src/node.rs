@@ -24,7 +24,7 @@ pub(crate) type Node = Rc<RefCell<NodeImpl>>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct NodeImpl {
-    pub(crate) bucket: *mut Bucket,
+    // pub(crate) bucket: *mut Bucket,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
     pub(crate) parent: Weak<RefCell<NodeImpl>>,
@@ -38,7 +38,7 @@ pub(crate) struct NodeImpl {
 impl NodeImpl {
     pub(crate) fn new(bucket: *mut Bucket) -> NodeImpl {
         Self {
-            bucket: bucket,
+            //  bucket: bucket,
             is_leaf: false,
             inodes: Vec::new(),
             parent: Weak::new(),
@@ -64,16 +64,21 @@ impl NodeImpl {
         Rc::new(RefCell::new(self))
     }
 
-    pub(crate) fn child_at(&self, index: usize, parent: Weak<RefCell<NodeImpl>>) -> Node {
+    pub(crate) fn child_at(
+        &self,
+        bucket: &mut Bucket,
+        index: usize,
+        parent: Weak<RefCell<NodeImpl>>,
+    ) -> Node {
         if self.is_leaf {
             panic!("invalid childAt{} on a leaf node", index);
         }
-        self.bucket_mut().node(self.inodes[index].pgid, parent)
+        bucket.node(self.inodes[index].pgid, parent)
     }
 
-    fn bucket_mut(&self) -> &mut Bucket {
-        unsafe { &mut *self.bucket }
-    }
+    // fn bucket_mut(&self) -> &mut Bucket {
+    //     unsafe { &mut *self.bucket }
+    // }
 
     pub(crate) fn size(&self) -> usize {
         let mut sz = Page::header_size();
@@ -119,24 +124,25 @@ impl NodeImpl {
         }
     }
 
-    pub(super) fn bucket(&self) -> &Bucket {
-        assert!(!self.bucket.is_null());
-        unsafe { &*self.bucket }
-    }
+    // pub(super) fn bucket(&self) -> &Bucket {
+    //     assert!(!self.bucket.is_null());
+    //     unsafe { &*self.bucket }
+    // }
 
     pub(crate) fn put(
         &mut self,
+        bucket: &Bucket,
         old_key: &[u8],
         new_key: &[u8],
         value: &[u8],
         pgid: Pgid,
         flags: u32,
     ) {
-        if pgid > self.bucket().tx().unwrap().meta.pgid {
+        if pgid > bucket.tx().unwrap().meta.pgid {
             panic!(
                 "pgid {} above high water mark {}",
                 pgid,
-                self.bucket().tx().unwrap().meta.pgid,
+                bucket.tx().unwrap().meta.pgid,
             )
         } else if old_key.len() <= 0 {
             panic!("put: zero-length old key")

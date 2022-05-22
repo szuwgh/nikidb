@@ -1,5 +1,5 @@
 use std::borrow::BorrowMut;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::ops::Index;
 use std::ptr::{null, null_mut};
@@ -14,13 +14,17 @@ use std::rc::{Rc, Weak};
 use std::sync::{Arc, Weak as ArcWeak};
 pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
 
+const MAX_KEY_SIZE: usize = 32768;
+
+const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
+
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
-    nodes: HashMap<Pgid, Node>, //tx: Tx,
+    nodes: HashMap<Pgid, Node>,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
     root_node: Option<Node>,
     page: *const Page,
-    buckets: HashMap<Vec<u8>, Node>,
+    buckets: RefCell<HashMap<Vec<u8>, Rc<RefCell<Bucket>>>>,
 }
 
 #[derive(Clone)]
@@ -36,7 +40,7 @@ impl From<Node> for PageNode {
 }
 
 impl Bucket {
-    pub(crate) fn new(root: Pgid, is_leaf: bool, tx: ArcWeak<TxImpl>) -> Bucket {
+    pub(crate) fn new(root: Pgid, tx: ArcWeak<TxImpl>) -> Bucket {
         Self {
             ibucket: IBucket {
                 root: root,
@@ -46,13 +50,28 @@ impl Bucket {
             weak_tx: tx,
             root_node: Some(NodeImpl::new(null_mut()).leaf(true).build()),
             page: null(),
-            buckets: HashMap::new(),
+            buckets: RefCell::new(HashMap::new()),
         }
     }
 
-    pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<Bucket> {
-        let tx_clone = self.weak_tx.clone();
+    pub(crate) fn bucket<'a>(&'a self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+        if let Some(bucket) = self.buckets.borrow_mut().get_mut(key) {
+            return Ok(bucket.clone());
+        }
 
+        let child = self.open_bucket(key)?;
+
+        Err(NKError::ErrValueTooLarge)
+    }
+
+    fn open_bucket(&self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+        let child = Bucket::new(0, self.weak_tx.clone());
+
+        Ok(Rc::new(RefCell::new(child)))
+    }
+
+    pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+        let tx_clone = self.weak_tx.clone();
         let mut c = self.cursor();
         let item = c.seek(key)?;
         if item.key().eq(&Some(key)) {
@@ -63,21 +82,31 @@ impl Bucket {
             }
         }
 
-        let mut bucket = Bucket::new(0, true, tx_clone);
+        let mut bucket = Bucket::new(0, tx_clone); // root == 0 is inline bucket
         let value = bucket.write();
 
         (*c.node()?)
             .borrow_mut()
-            .put(key, key, value.as_slice(), 0, BucketLeafFlag);
+            .put(self, key, key, value.as_slice(), 0, BucketLeafFlag);
 
-        Ok(bucket)
+        self.bucket(key)
     }
 
     fn cursor(&mut self) -> Cursor {
         Cursor::new(self)
     }
 
-    pub(crate) fn put(key: &[u8], value: &[u8]) {}
+    pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> NKResult<()> {
+        if key.len() == 0 {
+            return Err(NKError::ErrKeyRequired);
+        } else if key.len() > MAX_KEY_SIZE {
+            return Err(NKError::ErrKeyTooLarge);
+        } else if value.len() > MAX_VALUE_SIZE {
+            return Err(NKError::ErrValueTooLarge);
+        }
+
+        Ok(())
+    }
 
     pub(crate) fn get(key: &[u8]) {}
 

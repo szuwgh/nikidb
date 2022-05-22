@@ -271,7 +271,9 @@ impl<'a> Cursor<'a> {
         };
 
         for e in self.stack[..self.stack.len() - 1].iter() {
-            let child = (*n).borrow_mut().child_at(e.index, Rc::downgrade(&n));
+            let child = (*n)
+                .borrow_mut()
+                .child_at(self.bucket, e.index, Rc::downgrade(&n));
             n = child;
         }
 

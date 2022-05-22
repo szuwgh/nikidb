@@ -1,5 +1,6 @@
 use crate::bucket::Bucket;
 use crate::db::DBImpl;
+use crate::error::{NKError, NKResult};
 use crate::page::Meta;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
@@ -17,7 +18,6 @@ impl Tx {
 
     pub(crate) fn init(&mut self) {
         let r = self.0.clone();
-
         r.root.borrow_mut().weak_tx = Arc::downgrade(&self.0);
     }
 
@@ -25,7 +25,9 @@ impl Tx {
         self.0.root.borrow_mut().create_bucket(name);
     }
 
-    pub(crate) fn commit() {}
+    pub(crate) fn commit() -> NKResult<()> {
+        Ok(())
+    }
 }
 
 pub(crate) struct TxImpl {
@@ -38,7 +40,7 @@ impl TxImpl {
     pub(crate) fn build(db: Arc<DBImpl>) -> TxImpl {
         let tx = Self {
             dbImpl: db.clone(),
-            root: RefCell::new(Bucket::new(0, false, Weak::new())),
+            root: RefCell::new(Bucket::new(0, Weak::new())),
             meta: db.meta(),
         };
         tx.root.borrow_mut().ibucket = tx.meta.root.clone();
