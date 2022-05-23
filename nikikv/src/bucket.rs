@@ -23,9 +23,11 @@ pub(crate) struct Bucket {
     nodes: HashMap<Pgid, Node>,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
     root_node: Option<Node>,
-    page: *const Page,
-    buckets: RefCell<HashMap<Vec<u8>, Rc<RefCell<Bucket>>>>,
+    page: Option<InlinePage>, // inline page
+    buckets: HashMap<Vec<u8>, Rc<RefCell<Bucket>>>,
 }
+
+struct InlinePage {}
 
 #[derive(Clone)]
 pub(crate) enum PageNode {
@@ -49,22 +51,24 @@ impl Bucket {
             nodes: HashMap::new(),
             weak_tx: tx,
             root_node: Some(NodeImpl::new(null_mut()).leaf(true).build()),
-            page: null(),
-            buckets: RefCell::new(HashMap::new()),
+            page: None,
+            buckets: HashMap::new(),
         }
     }
 
-    pub(crate) fn bucket<'a>(&'a self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
-        if let Some(bucket) = self.buckets.borrow_mut().get_mut(key) {
+    pub(crate) fn bucket(&mut self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+        if let Some(bucket) = self.buckets.get_mut(key) {
             return Ok(bucket.clone());
         }
 
         let child = self.open_bucket(key)?;
 
-        Err(NKError::ErrValueTooLarge)
+        self.buckets.insert(key.to_vec(), child.clone());
+
+        Ok(child.clone())
     }
 
-    fn open_bucket(&self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+    fn open_bucket(&mut self, value: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
         let child = Bucket::new(0, self.weak_tx.clone());
 
         Ok(Rc::new(RefCell::new(child)))
@@ -143,7 +147,7 @@ impl Bucket {
             return node.clone();
         }
         let n = NodeImpl::new(self).parent(parent.clone()).build();
-        if self.page.is_null() {
+        if self.page.is_none() {
             let p = self.tx().unwrap().db().page(pgid);
             (*n).borrow_mut().read(unsafe { &*p });
         }
