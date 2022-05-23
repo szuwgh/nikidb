@@ -60,17 +60,17 @@ impl Bucket {
         if let Some(bucket) = self.buckets.get_mut(key) {
             return Ok(bucket.clone());
         }
-
-        let child = self.open_bucket(key)?;
-
+        let mut c = self.cursor();
+        let item = c.seek(key)?;
+        let value = item.1.unwrap().to_vec();
+        let child = self.open_bucket(value)?;
         self.buckets.insert(key.to_vec(), child.clone());
-
         Ok(child.clone())
     }
 
-    fn open_bucket(&mut self, value: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+    fn open_bucket(&self, value: Vec<u8>) -> NKResult<Rc<RefCell<Bucket>>> {
         let child = Bucket::new(0, self.weak_tx.clone());
-
+        let 
         Ok(Rc::new(RefCell::new(child)))
     }
 
