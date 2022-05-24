@@ -153,7 +153,7 @@ impl<'a> Cursor<'a> {
 
     pub(crate) fn seek(&mut self, key: &[u8]) -> NKResult<Item<'a>> {
         //  let mut item: Option<Item> = None;
-        let mut item = self.seek_elem(key)?;
+        let mut item = self.seek_item(key)?;
         let ref_elem = self.stack.last().ok_or("stack empty")?;
         if ref_elem.index >= ref_elem.count() {
             item = self.next()?;
@@ -166,7 +166,7 @@ impl<'a> Cursor<'a> {
         Ok(item)
     }
 
-    fn seek_elem(&mut self, key: &[u8]) -> NKResult<Item<'a>> {
+    pub(crate) fn seek_item(&mut self, key: &[u8]) -> NKResult<Item<'a>> {
         self.stack.clear();
         self.search(key, self.bucket.ibucket.root)?;
         let ref_elem = self.stack.last().ok_or("stack empty")?;

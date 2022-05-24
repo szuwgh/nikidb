@@ -1,22 +1,22 @@
-use std::borrow::BorrowMut;
-use std::cell::{Ref, RefCell};
-use std::collections::HashMap;
-use std::ops::Index;
-use std::ptr::{null, null_mut};
-
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
 use crate::node::{Node, NodeImpl};
 use crate::page::{BucketLeafFlag, Page, Pgid};
 use crate::tx::TxImpl;
+use crate::u8_to_struct_mut;
+use std::borrow::BorrowMut;
+use std::cell::{Ref, RefCell};
+use std::collections::HashMap;
 use std::mem::size_of;
+use std::ops::Index;
+use std::ptr::{null, null_mut};
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Weak as ArcWeak};
 pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
 
 const MAX_KEY_SIZE: usize = 32768;
 
-const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
+const MAX_VALUE_SIZE: usize = (1 << 31) - 2;  
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
@@ -27,7 +27,16 @@ pub(crate) struct Bucket {
     buckets: HashMap<Vec<u8>, Rc<RefCell<Bucket>>>,
 }
 
-struct InlinePage {}
+struct InlinePage {
+     value: Vec<u8>,
+}
+
+impl InlinePage{
+    fn from_vec(value:Vec<u8>)->Self{  
+        Self { value: value }
+    }
+
+}
 
 #[derive(Clone)]
 pub(crate) enum PageNode {
@@ -60,17 +69,31 @@ impl Bucket {
         if let Some(bucket) = self.buckets.get_mut(key) {
             return Ok(bucket.clone());
         }
-        let mut c = self.cursor();
-        let item = c.seek(key)?;
+        let item = {
+            let mut c = self.cursor();
+            c.seek_item(key)?
+        };
+
+        	// Return nil if the key doesn't exist or it is not a bucket.
+        if  !key.eq(item.0.unwrap()) || (item.2&BucketLeafFlag) == 0 {
+            return Err(NKError::ErrBucketNotFound);
+        }
+
+
         let value = item.1.unwrap().to_vec();
         let child = self.open_bucket(value)?;
         self.buckets.insert(key.to_vec(), child.clone());
         Ok(child.clone())
     }
 
-    fn open_bucket(&self, value: Vec<u8>) -> NKResult<Rc<RefCell<Bucket>>> {
-        let child = Bucket::new(0, self.weak_tx.clone());
-        let 
+    fn open_bucket(&mut self, value: Vec<u8>) -> NKResult<Rc<RefCell<Bucket>>> {
+        let mut child = Bucket::new(0, self.weak_tx.clone());
+        let ibucket = crate::u8_to_struct::<IBucket>(value.as_slice());
+        child.ibucket = ibucket.clone();
+        if child.ibucket.root == 0 { //inline page
+            let page = &value[IBucket::SIZE..];
+            child.page = Some(InlinePage::from_vec(page.to_vec()));
+        }
         Ok(Rc::new(RefCell::new(child)))
     }
 
@@ -85,7 +108,6 @@ impl Bucket {
                 ));
             }
         }
-
         let mut bucket = Bucket::new(0, tx_clone); // root == 0 is inline bucket
         let value = bucket.write();
 
@@ -100,7 +122,7 @@ impl Bucket {
         Cursor::new(self)
     }
 
-    pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> NKResult<()> {
+    pub(crate) fn put(&mut self, key: &[u8], value: &[u8]) -> NKResult<()> {
         if key.len() == 0 {
             return Err(NKError::ErrKeyRequired);
         } else if key.len() > MAX_KEY_SIZE {
@@ -109,6 +131,9 @@ impl Bucket {
             return Err(NKError::ErrValueTooLarge);
         }
 
+        let mut c = self.cursor();
+        let item = c.seek(key)?;
+        
         Ok(())
     }
 
@@ -129,7 +154,6 @@ impl Bucket {
     pub(crate) fn write(&self) -> Vec<u8> {
         let n = self.root_node.as_ref().unwrap().borrow();
         let size = n.size();
-        println!("size:{}", size);
         let mut value = vec![0u8; BucketHeaderSize + size];
 
         let bucket = value.as_ptr() as *mut IBucket;
@@ -163,6 +187,9 @@ pub(crate) struct IBucket {
 }
 
 impl IBucket {
+
+    pub(crate) const SIZE : usize = std::mem::size_of::<Self>();
+
     pub(crate) fn new(root: Pgid) -> IBucket {
         Self {
             root: root,

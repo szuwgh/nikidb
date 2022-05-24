@@ -28,6 +28,8 @@ pub(crate) enum NKError {
     ErrKeyTooLarge,
     #[error("value too large")]
     ErrValueTooLarge,
+    #[error("Bucket not found")]
+    ErrBucketNotFound,
 }
 
 impl From<&str> for NKError {
