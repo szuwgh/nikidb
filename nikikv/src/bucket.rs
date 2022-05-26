@@ -12,11 +12,12 @@ use std::ops::Index;
 use std::ptr::{null, null_mut};
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Weak as ArcWeak};
+
 pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
 
 const MAX_KEY_SIZE: usize = 32768;
 
-const MAX_VALUE_SIZE: usize = (1 << 31) - 2;  
+const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
@@ -28,14 +29,13 @@ pub(crate) struct Bucket {
 }
 
 struct InlinePage {
-     value: Vec<u8>,
+    value: Vec<u8>,
 }
 
-impl InlinePage{
-    fn from_vec(value:Vec<u8>)->Self{  
+impl InlinePage {
+    fn from_vec(value: Vec<u8>) -> Self {
         Self { value: value }
     }
-
 }
 
 #[derive(Clone)]
@@ -74,11 +74,9 @@ impl Bucket {
             c.seek_item(key)?
         };
 
-        	// Return nil if the key doesn't exist or it is not a bucket.
-        if  !key.eq(item.0.unwrap()) || (item.2&BucketLeafFlag) == 0 {
+        if !key.eq(item.0.unwrap()) || (item.2 & BucketLeafFlag) == 0 {
             return Err(NKError::ErrBucketNotFound);
         }
-
 
         let value = item.1.unwrap().to_vec();
         let child = self.open_bucket(value)?;
@@ -90,8 +88,9 @@ impl Bucket {
         let mut child = Bucket::new(0, self.weak_tx.clone());
         let ibucket = crate::u8_to_struct::<IBucket>(value.as_slice());
         child.ibucket = ibucket.clone();
-        if child.ibucket.root == 0 { //inline page
-            let page = &value[IBucket::SIZE..];
+        if child.ibucket.root == 0 {
+            //inline page
+            let page = &value[BucketHeaderSize..];
             child.page = Some(InlinePage::from_vec(page.to_vec()));
         }
         Ok(Rc::new(RefCell::new(child)))
@@ -133,7 +132,13 @@ impl Bucket {
 
         let mut c = self.cursor();
         let item = c.seek(key)?;
-        
+
+        if Some(key) == item.0 && (item.2 & BucketLeafFlag) == 1 {
+            return Err(NKError::ErrBucketNotFound);
+        }
+        (*c.node()?)
+            .borrow_mut()
+            .put(self, key, key, value.as_slice(), 0, 0);
         Ok(())
     }
 
@@ -187,9 +192,6 @@ pub(crate) struct IBucket {
 }
 
 impl IBucket {
-
-    pub(crate) const SIZE : usize = std::mem::size_of::<Self>();
-
     pub(crate) fn new(root: Pgid) -> IBucket {
         Self {
             root: root,
