@@ -33,7 +33,7 @@ pub(crate) struct Page {
     // 个数 2字节，统计叶子节点、非叶子节点、空闲列表页的个数
     pub(crate) count: u16,
     // 4字节，数据是否有溢出，主要在空闲列表上有用
-    pub(crate) overflow: u32,
+    pub(crate) overflow: u32, //如果当前页面还不够存放数据，就会有后续页面，这个字段表示后续页面的数量。
     ptr: PhantomData<u8>,
 }
 

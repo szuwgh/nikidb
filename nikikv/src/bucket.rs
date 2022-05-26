@@ -19,7 +19,7 @@ const MAX_KEY_SIZE: usize = 32768;
 
 const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
 
-pub(crate) struct Bucket {
+pub(crate) struct Bucket  {
     pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
@@ -28,7 +28,7 @@ pub(crate) struct Bucket {
     buckets: HashMap<Vec<u8>, Rc<RefCell<Bucket>>>,
 }
 
-struct InlinePage {
+struct InlinePage  {
     value: Vec<u8>,
 }
 
@@ -138,7 +138,7 @@ impl Bucket {
         }
         (*c.node()?)
             .borrow_mut()
-            .put(self, key, key, value.as_slice(), 0, 0);
+            .put(self, key, key, value, 0, 0);
         Ok(())
     }
 
