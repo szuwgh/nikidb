@@ -182,6 +182,10 @@ impl Page {
         self.elements::<LeafPageElement>()
     }
 
+    pub(crate) fn freelist(&self) -> &[Pgid] {
+        self.elements::<Pgid>()
+    }
+
     pub(crate) fn leaf_page_element(&self, index: usize) -> &LeafPageElement {
         self.leaf_page_elements().get(index).unwrap()
     }

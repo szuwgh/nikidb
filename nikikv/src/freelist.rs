@@ -1,32 +1,116 @@
 use std::collections::HashMap;
 
-use crate::{page::{Pgid, Page}, tx::{Txid, self}};
+use crate::{
+    page::{Page, Pgid},
+    tx::{self, Txid},
+};
 
 pub(crate) struct FreeList {
     ids: Vec<Pgid>,
-    pending: HashMap<Txid, Vec<Pgid>> ,  
-    cache: HashMap<Pgid, bool>, 
+    pending: HashMap<Txid, Vec<Pgid>>,
+    cache: HashMap<Pgid, bool>,
 }
 
 impl FreeList {
-    pub(crate) fn free(&mut self, txid: Txid,  p: &Page) {
-        // 该接口主要用于写事务提交之前释放已占用page。
-        // 将待释放的page id加入到pending和cache中。
-        // 如果待释放的page的overflow大于零，则对其关联的其他page做同样的处理。
+    // 该接口主要用于写事务提交之前释放已占用page。
+    // 将待释放的page id加入到pending和cache中。
+    // 如果待释放的page的overflow大于零，则对其关联的其他page做同样的处理。
+    pub(crate) fn free(&mut self, txid: Txid, p: &Page) {
         if p.id <= 1 {
             panic!("cannot free page 0 or 1: {}", p.id);
         }
         let ids = self.pending.entry(txid).or_insert(Vec::new());
-        for id in p.id..p.id+p.overflow as Pgid {  
+        for id in p.id..p.id + p.overflow as Pgid {
             if self.cache.contains_key(&id) {
                 panic!("page {} already freed", id);
             }
+            
             ids.push(id);
             self.cache.insert(id, true);
         }
-    }  
+    }
 
-    pub(crate) fn allocate(n: usize) -> Pgid {
-        0
+    // 从freelist中的空闲page中寻找n个page id连续的page。如果分配成功，
+    // 说明被分配的pages已经被占用，则将其从空闲page列表和cache中清除，
+    // 并返回起始page id。如果分配失败，则返回零
+    pub(crate) fn allocate(&mut self, n: usize) -> Pgid {
+        if self.ids.len() == 0 {
+            return 0;
+        }
+        let mut initial: Pgid = 0;
+        let mut previd: Pgid = 0;
+        let (item) = self.ids.iter().enumerate().position(|(_i, _id)| {
+            let id = *_id;
+            if id <= 1 {
+                panic!("invalid page allocation: {}", id);
+            }
+            if previd == 0 || id - previd != 1 {
+                initial = id;
+            }
+            if (id - initial) + 1 == n as Pgid {
+                return true;
+            }
+            previd = id;
+            false
+        });
+        return match item {
+            Some(index) => {
+                self.ids.drain(index - n + 1..index + 1);
+                for i in 0..n {
+                    self.cache.remove(&(initial + (i as Pgid)));
+                }
+                initial
+            }
+            None => 0,
+        };
+    }
+
+    pub(crate) fn read(&mut self, p: &Page) {
+        let mut idx: usize = 0;
+        let mut count = p.count as usize;
+        if count == 0xFFFF {
+            idx = 1;
+            count = *p.freelist().first().unwrap() as usize;
+        }
+        if count == 0 {
+            self.ids.clear();
+        } else {
+            let ids = p.freelist();
+            self.ids = ids[idx..count].to_vec();
+            self.ids.sort_unstable();
+        }
+        self.reindex();
+    }
+
+    pub(crate) fn reindex(&mut self) {
+        let mut new_cache: HashMap<Pgid, bool> = HashMap::new();
+        for id in self.ids.iter() {
+            new_cache.insert(*id, true);
+        }
+        for (_key, ids) in self.pending.iter() {
+            for id in ids.iter() {
+                new_cache.insert(*id, true);
+            }
+        }
+        self.cache = new_cache;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_freelist_allocate() {
+        let ids: Vec<Pgid> = vec![
+            2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24,
+        ];
+        let mut freelist = FreeList {
+            ids: ids,
+            pending: HashMap::new(),
+            cache: HashMap::new(),
+        };
+        let pgid = freelist.allocate(5);
+        println!("pgid:{}", pgid);
+        println!("ids:{:?}", freelist.ids);
     }
 }
