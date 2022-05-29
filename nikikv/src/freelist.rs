@@ -11,6 +11,16 @@ pub(crate) struct FreeList {
     cache: HashMap<Pgid, bool>,
 }
 
+impl Default for FreeList {
+    fn default() -> Self {
+        Self {
+            ids: Vec::new(),
+            pending: HashMap::new(),
+            cache: HashMap::new(),
+        }
+    }
+}
+
 impl FreeList {
     // 该接口主要用于写事务提交之前释放已占用page。
     // 将待释放的page id加入到pending和cache中。
@@ -24,7 +34,7 @@ impl FreeList {
             if self.cache.contains_key(&id) {
                 panic!("page {} already freed", id);
             }
-            
+
             ids.push(id);
             self.cache.insert(id, true);
         }
@@ -39,7 +49,7 @@ impl FreeList {
         }
         let mut initial: Pgid = 0;
         let mut previd: Pgid = 0;
-        let (item) = self.ids.iter().enumerate().position(|(_i, _id)| {
+        let item = self.ids.iter().enumerate().position(|(_i, _id)| {
             let id = *_id;
             if id <= 1 {
                 panic!("invalid page allocation: {}", id);

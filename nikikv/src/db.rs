@@ -1,6 +1,9 @@
 use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
-use crate::page::{FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, Page, Pgid};
+use crate::freelist::FreeList;
+use crate::page::{
+    self, FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, OwnerPage, Page, Pgid,
+};
 use crate::tx::{Tx, TxImpl, Txid};
 use crate::{magic, version};
 use page_size;
@@ -17,11 +20,11 @@ const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
 
 const MAX_MMAP_STEP: u64 = 1 << 30;
 
-fn get_page_size() -> u32 {
-    page_size::get() as u32
+fn get_page_size() -> usize {
+    page_size::get()
 }
 
-pub struct DB(Arc<DBImpl>);
+pub struct DB(Arc<RefCell<DBImpl>>);
 
 impl DB {
     fn begin(&self) -> Tx {
@@ -37,6 +40,10 @@ pub(crate) struct DBImpl {
     mmap: Option<memmap::Mmap>,
     meta0: *const Meta,
     meta1: *const Meta,
+    page_pool: Vec<Vec<u8>>,
+    freelist: FreeList,
+    db_size: usize,
+    rwtx: Option<Tx>,
 }
 
 #[derive(Clone, Copy)]
@@ -80,8 +87,9 @@ impl DBImpl {
             db.page_size = m.page_size;
             println!("read:checksum {}", m.checksum);
         }
-        db.mmap(options.initial_mmap_size)?;
-        Ok(DB(Arc::new(db)))
+        db.set_mmap(options.initial_mmap_size)?;
+        db.freelist.read(unsafe { &*db.page(db.meta().freelist) });
+        Ok(DB(Arc::new(RefCell::new(db))))
     }
 
     fn new(file: File) -> DBImpl {
@@ -91,11 +99,14 @@ impl DBImpl {
             mmap: None,
             meta0: null(),
             meta1: null(),
+            page_pool: Vec::new(),
+            freelist: FreeList::default(),
+            db_size: 0,
         }
     }
 
     fn init(&mut self) -> NKResult<()> {
-        self.page_size = get_page_size();
+        self.page_size = get_page_size() as u32;
         let mut buf: Vec<u8> = vec![0; 4 * self.page_size as usize];
         for i in 0..2 {
             let p = self.page_in_buffer_mut(&mut buf, i);
@@ -178,9 +189,35 @@ impl DBImpl {
         Ok(size)
     }
 
-    fn munmap() {}
+    pub(crate) fn allocate(&mut self, count: usize) -> NKResult<OwnerPage> {
+        //
+        let mut page = if count == 1 {
+            if let Some(p) = self.page_pool.pop() {
+                OwnerPage::from_vec(p)
+            } else {
+                OwnerPage::from_vec(vec![0u8; get_page_size()])
+            }
+        } else {
+            OwnerPage::from_vec(vec![0u8; get_page_size() * count])
+        };
 
-    fn mmap(&mut self, mut min_size: u64) -> NKResult<()> {
+        let p = page.to_page();
+        p.overflow = (count - 1) as u32;
+
+        p.id = self.freelist.allocate(count);
+        if p.id != 0 {
+            return Ok(page);
+        }
+
+        let minsz = ((p.id + count as Pgid + 1) as usize) * get_page_size();
+        if minsz >= self.db_size {
+            self.set_mmap(minsz as u64)?;
+        }
+
+        Ok(page)
+    }
+
+    pub(crate) fn set_mmap(&mut self, mut min_size: u64) -> NKResult<()> {
         let mut mmap_opts = memmap::MmapOptions::new();
 
         let mut size = self
@@ -188,12 +225,13 @@ impl DBImpl {
             .metadata()
             .map_err(|e| NKError::DBOpenFail(e))?
             .len();
+        println!("size:{}", size);
         if size < min_size {
             size = min_size;
         }
         min_size = self.mmap_size(size)?;
         println!("min_size:{}", min_size);
-        // let  munmap =
+        drop(self.mmap.as_deref());
         let nmmap = unsafe {
             mmap_opts
                 .offset(0)
@@ -208,6 +246,7 @@ impl DBImpl {
         self.meta0 = meta0;
         self.meta1 = meta1;
         self.mmap = Some(nmmap);
+        self.db_size = min_size as usize;
         Ok(())
     }
 
@@ -238,6 +277,12 @@ mod tests {
     #[test]
     fn test_db_open() {
         //
+    }
+
+    #[test]
+    fn test_db_mmap() {
+        let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        (*db.0).borrow_mut().set_mmap2(32769);
     }
 
     #[test]

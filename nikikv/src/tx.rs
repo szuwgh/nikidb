@@ -31,23 +31,23 @@ impl Tx {
 }
 
 pub(crate) struct TxImpl {
-    dbImpl: Arc<DBImpl>,
+    dbImpl: Arc<RefCell<DBImpl>>,
     pub(crate) root: RefCell<Bucket>,
     pub(crate) meta: Meta,
 }
 
 impl TxImpl {
-    pub(crate) fn build(db: Arc<DBImpl>) -> TxImpl {
+    pub(crate) fn build(db: Arc<RefCell<DBImpl>>) -> TxImpl {
         let tx = Self {
             dbImpl: db.clone(),
             root: RefCell::new(Bucket::new(0, Weak::new())),
-            meta: db.meta(),
+            meta: db.borrow().meta(),
         };
         tx.root.borrow_mut().ibucket = tx.meta.root.clone();
         tx
     }
 
-    pub(crate) fn db(&self) -> Arc<DBImpl> {
+    pub(crate) fn db(&self) -> Arc<RefCell<DBImpl>> {
         self.dbImpl.clone()
     }
 }

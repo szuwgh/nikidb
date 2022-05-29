@@ -37,6 +37,20 @@ pub(crate) struct Page {
     ptr: PhantomData<u8>,
 }
 
+pub(crate) struct OwnerPage {
+    value: Vec<u8>,
+}
+
+impl OwnerPage {
+    pub(crate) fn from_vec(value: Vec<u8>) -> Self {
+        Self { value: value }
+    }
+
+    pub(crate) fn to_page(&mut self) -> &mut Page {
+        crate::u8_to_struct_mut(&mut self.value)
+    }
+}
+
 #[repr(C)]
 pub(crate) struct BranchPageElement {
     pub(crate) pos: u32, //存储键相对于当前页面数据部分的偏移量
