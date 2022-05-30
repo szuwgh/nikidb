@@ -27,7 +27,13 @@ fn get_page_size() -> usize {
 pub struct DB(Arc<RefCell<DBImpl>>);
 
 impl DB {
-    fn begin(&self) -> Tx {
+    fn begin_rwtx(&mut self) -> Tx {
+        let mut tx = Tx(Arc::new(TxImpl::build(self.0.clone())));
+        tx.init();
+        tx
+    }
+
+    fn begin_tx(&mut self) -> Tx {
         let mut tx = Tx(Arc::new(TxImpl::build(self.0.clone())));
         tx.init();
         tx
@@ -41,8 +47,8 @@ pub(crate) struct DBImpl {
     meta0: *const Meta,
     meta1: *const Meta,
     page_pool: Vec<Vec<u8>>,
-    freelist: FreeList,
-    db_size: usize,
+    pub(crate) freelist: FreeList,
+    db_size: u64,
     rwtx: Option<Tx>,
 }
 
@@ -102,6 +108,7 @@ impl DBImpl {
             page_pool: Vec::new(),
             freelist: FreeList::default(),
             db_size: 0,
+            rwtx: None,
         }
     }
 
@@ -190,7 +197,6 @@ impl DBImpl {
     }
 
     pub(crate) fn allocate(&mut self, count: usize) -> NKResult<OwnerPage> {
-        //
         let mut page = if count == 1 {
             if let Some(p) = self.page_pool.pop() {
                 OwnerPage::from_vec(p)
@@ -205,14 +211,16 @@ impl DBImpl {
         p.overflow = (count - 1) as u32;
 
         p.id = self.freelist.allocate(count);
+
         if p.id != 0 {
             return Ok(page);
         }
-
-        let minsz = ((p.id + count as Pgid + 1) as usize) * get_page_size();
+        let minsz = (((p.id + count as Pgid + 1) as usize) * get_page_size()) as u64;
         if minsz >= self.db_size {
-            self.set_mmap(minsz as u64)?;
+            self.set_mmap(minsz)?;
         }
+
+        (*(self.rwtx.as_ref().unwrap().0)).meta.borrow_mut().pgid += count as Pgid;
 
         Ok(page)
     }
@@ -246,7 +254,7 @@ impl DBImpl {
         self.meta0 = meta0;
         self.meta1 = meta1;
         self.mmap = Some(nmmap);
-        self.db_size = min_size as usize;
+        self.db_size = min_size as u64;
         Ok(())
     }
 

@@ -3,10 +3,12 @@ use crate::page::{
     BranchPageElementSize, BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageElementSize,
     LeafPageFlag, MetaPageFlag, Page, Pgid,
 };
+use crate::tx::{Tx, TxImpl};
 use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
 use fnv::FnvHasher;
 use memoffset::offset_of;
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::hash::Hasher;
 use std::marker::PhantomData;
@@ -15,6 +17,7 @@ use std::ops::Sub;
 use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::rc::Weak;
+use std::sync::Weak as ArcWeak;
 
 pub(crate) type Node = Rc<RefCell<NodeImpl>>;
 
@@ -76,10 +79,6 @@ impl NodeImpl {
         bucket.node(self.inodes[index].pgid, parent)
     }
 
-    // fn bucket_mut(&self) -> &mut Bucket {
-    //     unsafe { &mut *self.bucket }
-    // }
-
     pub(crate) fn size(&self) -> usize {
         let mut sz = Page::header_size();
         let elsz = self.page_element_size();
@@ -124,11 +123,6 @@ impl NodeImpl {
         }
     }
 
-    // pub(super) fn bucket(&self) -> &Bucket {
-    //     assert!(!self.bucket.is_null());
-    //     unsafe { &*self.bucket }
-    // }
-
     pub(crate) fn put(
         &mut self,
         bucket: &Bucket,
@@ -138,11 +132,11 @@ impl NodeImpl {
         pgid: Pgid,
         flags: u32,
     ) {
-        if pgid > bucket.tx().unwrap().meta.pgid {
+        if pgid > bucket.tx().unwrap().meta.borrow().pgid {
             panic!(
                 "pgid {} above high water mark {}",
                 pgid,
-                bucket.tx().unwrap().meta.pgid,
+                bucket.tx().unwrap().meta.borrow().pgid,
             )
         } else if old_key.len() <= 0 {
             panic!("put: zero-length old key")
@@ -211,7 +205,15 @@ impl NodeImpl {
         }
     }
 
-    pub(crate) fn spill() {}
+    //node spill
+    pub(super) fn spill(&self, atx: ArcWeak<TxImpl>) {
+        let mut tx = atx.upgrade().map(Tx).unwrap();
+        let mut db = (*(tx.0.db())).borrow_mut();
+        if self.pgid > 0 {
+            db.freelist
+                .free(tx.0.meta.borrow().txid, unsafe { &*db.page(self.pgid) });
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

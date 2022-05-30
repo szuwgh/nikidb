@@ -1,15 +1,19 @@
 use crate::bucket::Bucket;
 use crate::db::DBImpl;
 use crate::error::{NKError, NKResult};
-use crate::page::Meta;
+use crate::page::{Meta, OwnerPage, Page, Pgid};
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ptr::null;
 use std::sync::{Arc, RwLock, Weak};
 
 pub(crate) type Txid = u64;
 
 pub(crate) struct Tx(pub(crate) Arc<TxImpl>);
+
+// unsafe impl Sync for Tx {}
+// unsafe impl Send for Tx {}
 
 impl Tx {
     pub(crate) fn clone(&self) -> Self {
@@ -28,12 +32,23 @@ impl Tx {
     pub(crate) fn commit() -> NKResult<()> {
         Ok(())
     }
+    pub(crate) fn allocate(&self, count: usize) -> NKResult<OwnerPage> {
+        let mut page = (*(self.0.db())).borrow_mut().allocate(count)?;
+        Ok(page)
+    }
+
+    // pub(crate) fn page(&self, id: Pgid) -> *const Page {
+    //     let db = (*(self.0.db())).borrow();
+    //     let p = db.page(id);
+    //     unsafe { &*p }
+    // }
 }
 
 pub(crate) struct TxImpl {
     dbImpl: Arc<RefCell<DBImpl>>,
     pub(crate) root: RefCell<Bucket>,
-    pub(crate) meta: Meta,
+    pub(crate) meta: RefCell<Meta>,
+    pub(crate) pages: RefCell<HashMap<Pgid, OwnerPage>>,
 }
 
 impl TxImpl {
@@ -41,9 +56,10 @@ impl TxImpl {
         let tx = Self {
             dbImpl: db.clone(),
             root: RefCell::new(Bucket::new(0, Weak::new())),
-            meta: db.borrow().meta(),
+            meta: RefCell::new(db.borrow().meta()),
+            pages: RefCell::new(HashMap::new()),
         };
-        tx.root.borrow_mut().ibucket = tx.meta.root.clone();
+        tx.root.borrow_mut().ibucket = tx.meta.borrow().root.clone();
         tx
     }
 
