@@ -136,7 +136,7 @@ impl Bucket {
         if let Some(node) = self.nodes.get(&id) {
             return Ok(PageNode::Node(node.clone()));
         }
-        let page = self.tx().unwrap().db().borrow().page(id);
+        let page = self.tx().unwrap().db().page(id);
         Ok(PageNode::Page(page))
     }
 
@@ -165,7 +165,7 @@ impl Bucket {
         }
         let n = NodeImpl::new(self).parent(parent.clone()).build();
         if self.page.is_none() {
-            let p = self.tx().unwrap().db().borrow().page(pgid);
+            let p = self.tx().unwrap().db().page(pgid);
             (*n).borrow_mut().read(unsafe { &*p });
         }
         self.nodes.insert(pgid, n.clone());

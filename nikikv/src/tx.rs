@@ -32,10 +32,10 @@ impl Tx {
     pub(crate) fn commit() -> NKResult<()> {
         Ok(())
     }
-    pub(crate) fn allocate(&self, count: usize) -> NKResult<OwnerPage> {
-        let mut page = (*(self.0.db())).borrow_mut().allocate(count)?;
-        Ok(page)
-    }
+    // pub(crate) fn allocate(&self, count: usize) -> NKResult<OwnerPage> {
+    //     let mut page = (*(self.0.db())).borrow_mut().allocate(count)?;
+    //     Ok(page)
+    // }
 
     // pub(crate) fn page(&self, id: Pgid) -> *const Page {
     //     let db = (*(self.0.db())).borrow();
@@ -45,25 +45,25 @@ impl Tx {
 }
 
 pub(crate) struct TxImpl {
-    dbImpl: Arc<RefCell<DBImpl>>,
+    dbImpl: RefCell<Arc<DBImpl>>,
     pub(crate) root: RefCell<Bucket>,
     pub(crate) meta: RefCell<Meta>,
     pub(crate) pages: RefCell<HashMap<Pgid, OwnerPage>>,
 }
 
 impl TxImpl {
-    pub(crate) fn build(db: Arc<RefCell<DBImpl>>) -> TxImpl {
+    pub(crate) fn build(db: Arc<DBImpl>) -> TxImpl {
         let tx = Self {
-            dbImpl: db.clone(),
+            dbImpl: RefCell::new(db.clone()),
             root: RefCell::new(Bucket::new(0, Weak::new())),
-            meta: RefCell::new(db.borrow().meta()),
+            meta: RefCell::new(db.meta()),
             pages: RefCell::new(HashMap::new()),
         };
         tx.root.borrow_mut().ibucket = tx.meta.borrow().root.clone();
         tx
     }
 
-    pub(crate) fn db(&self) -> Arc<RefCell<DBImpl>> {
-        self.dbImpl.clone()
+    pub(crate) fn db(&self) -> Arc<DBImpl> {
+        self.dbImpl.borrow().clone()
     }
 }

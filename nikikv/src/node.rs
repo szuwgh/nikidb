@@ -205,14 +205,32 @@ impl NodeImpl {
         }
     }
 
+    fn split() {}
+
     //node spill
-    pub(super) fn spill(&self, atx: ArcWeak<TxImpl>) {
+    pub(super) fn spill(&mut self, atx: ArcWeak<TxImpl>) -> NKResult<()> {
         let mut tx = atx.upgrade().map(Tx).unwrap();
-        let mut db = (*(tx.0.db())).borrow_mut();
+        let mut db = tx.0.db();
+
         if self.pgid > 0 {
             db.freelist
+                .borrow_mut()
                 .free(tx.0.meta.borrow().txid, unsafe { &*db.page(self.pgid) });
+            self.pgid = 0;
         }
+
+        let mut p = db.allocate(self.size() / db.get_page_size() as usize + 1)?;
+        let page = p.to_page();
+        if page.id >= tx.0.meta.borrow().pgid {
+            panic!(
+                "pgid {} above high water mark{}",
+                page.id,
+                tx.0.meta.borrow().pgid
+            );
+        }
+        self.pgid = page.id;
+        self.write(page);
+        Ok(())
     }
 }
 

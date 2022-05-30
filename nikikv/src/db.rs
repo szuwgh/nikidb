@@ -24,7 +24,7 @@ fn get_page_size() -> usize {
     page_size::get()
 }
 
-pub struct DB(Arc<RefCell<DBImpl>>);
+pub struct DB(Arc<DBImpl>);
 
 impl DB {
     fn begin_rwtx(&mut self) -> Tx {
@@ -42,14 +42,114 @@ impl DB {
 
 pub(crate) struct DBImpl {
     file: File,
-    page_size: u32,
+    mmap: RefCell<MmapUtil>,
+    page_pool: RefCell<Vec<Vec<u8>>>,
+    pub(crate) freelist: RefCell<FreeList>,
+    rwtx: Option<Tx>,
+}
+
+struct MmapUtil {
+    pub(crate) page_size: u32,
     mmap: Option<memmap::Mmap>,
     meta0: *const Meta,
     meta1: *const Meta,
-    page_pool: Vec<Vec<u8>>,
-    pub(crate) freelist: FreeList,
     db_size: u64,
-    rwtx: Option<Tx>,
+}
+
+impl Default for MmapUtil {
+    fn default() -> Self {
+        Self {
+            page_size: 0,
+            mmap: None,
+            meta0: null(),
+            meta1: null(),
+            db_size: 0,
+        }
+    }
+}
+
+impl MmapUtil {
+    fn mmap_size(&self, mut size: u64) -> NKResult<u64> {
+        for i in 15..=30 {
+            if size <= 1 << i {
+                return Ok(1 << i);
+            }
+        }
+        if size > MAX_MAP_SIZE {
+            return Err(NKError::Unexpected("mmap too large".to_string()));
+        }
+        let remainder = size % MAX_MMAP_STEP;
+        if remainder > 0 {
+            size += MAX_MAP_SIZE - remainder;
+        };
+        let page_size = self.page_size as u64;
+        if (size % page_size) != 0 {
+            size = ((size / page_size) + 1) * page_size;
+        };
+        if size > MAX_MAP_SIZE {
+            size = MAX_MAP_SIZE
+        };
+        Ok(size)
+    }
+
+    pub(crate) fn set_mmap(&mut self, file: &File, mut min_size: u64) -> NKResult<()> {
+        let mut mmap_opts = memmap::MmapOptions::new();
+
+        let mut size = file.metadata().map_err(|e| NKError::DBOpenFail(e))?.len();
+        println!("size:{}", size);
+        if size < min_size {
+            size = min_size;
+        }
+        min_size = self.mmap_size(size)?;
+        println!("min_size:{}", min_size);
+        drop(self.mmap.as_deref());
+        let nmmap = unsafe {
+            mmap_opts
+                .offset(0)
+                .len(min_size as usize)
+                .map(file)
+                .map_err(|e| format!("mmap failed: {}", e))?
+        };
+        let meta0 = self.page_in_buffer(&nmmap, 0).meta();
+        let meta1 = self.page_in_buffer(&nmmap, 1).meta();
+        meta0.validate()?;
+        meta1.validate()?;
+        self.meta0 = meta0;
+        self.meta1 = meta1;
+        self.mmap = Some(nmmap);
+        self.db_size = min_size as u64;
+        Ok(())
+    }
+
+    pub(crate) fn meta(&self) -> Meta {
+        unsafe {
+            let mut metaA = self.meta0;
+            let mut metaB = self.meta1;
+            if (*self.meta1).txid > (*self.meta0).txid {
+                metaA = self.meta1;
+                metaB = self.meta0;
+            }
+            if (*metaA).validate().is_ok() {
+                return *metaA.clone();
+            }
+            if (*metaB).validate().is_ok() {
+                return *metaB.clone();
+            }
+            panic!("niki.DB.meta(): invalid meta pages")
+        }
+    }
+
+    fn page_in_buffer_mut<'a>(&mut self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
+        Page::from_buf_mut(&mut buf[(id * self.page_size) as usize..])
+    }
+
+    fn page_in_buffer<'a>(&self, buf: &'a [u8], id: u32) -> &'a Page {
+        Page::from_buf(&buf[(id * self.page_size) as usize..])
+    }
+
+    pub(crate) fn page(&self, id: Pgid) -> *const Page {
+        self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -88,42 +188,43 @@ impl DBImpl {
             db.file
                 .read_at(&mut buf, 0)
                 .map_err(|_e| ("can't read to file", _e))?;
-            let m = db.page_in_buffer(&buf, 0).meta();
+            let m = db.mmap.borrow().page_in_buffer(&buf, 0).meta();
             m.validate()?;
-            db.page_size = m.page_size;
+            db.mmap.borrow_mut().page_size = m.page_size;
             println!("read:checksum {}", m.checksum);
         }
-        db.set_mmap(options.initial_mmap_size)?;
-        db.freelist.read(unsafe { &*db.page(db.meta().freelist) });
-        Ok(DB(Arc::new(RefCell::new(db))))
+        db.mmap
+            .borrow_mut()
+            .set_mmap(&db.file, options.initial_mmap_size)?;
+        db.freelist
+            .borrow_mut()
+            .read(unsafe { &*db.mmap.borrow().page(db.mmap.borrow().meta().freelist) });
+        Ok(DB(Arc::new(db)))
     }
 
     fn new(file: File) -> DBImpl {
         Self {
             file: file,
-            page_size: 0,
-            mmap: None,
-            meta0: null(),
-            meta1: null(),
-            page_pool: Vec::new(),
-            freelist: FreeList::default(),
-            db_size: 0,
+            mmap: RefCell::new(MmapUtil::default()),
+            page_pool: RefCell::new(Vec::new()),
+            freelist: RefCell::new(FreeList::default()),
             rwtx: None,
         }
     }
 
     fn init(&mut self) -> NKResult<()> {
-        self.page_size = get_page_size() as u32;
-        let mut buf: Vec<u8> = vec![0; 4 * self.page_size as usize];
+        let page_size = get_page_size();
+        self.mmap.borrow_mut().page_size = page_size as u32;
+        let mut buf: Vec<u8> = vec![0; 4 * page_size];
         for i in 0..2 {
-            let p = self.page_in_buffer_mut(&mut buf, i);
+            let p = self.mmap.borrow_mut().page_in_buffer_mut(&mut buf, i);
             p.id = i as Pgid;
             p.flags = MetaPageFlag;
 
             let m = p.meta_mut();
             m.magic = magic;
             m.version = version;
-            m.page_size = self.page_size;
+            m.page_size = page_size as u32;
             m.freelist = 2;
             m.root = IBucket::new(3);
             m.pgid = 4;
@@ -132,12 +233,12 @@ impl DBImpl {
         }
 
         // write an empty freelist at page 3
-        let mut p = self.page_in_buffer_mut(&mut buf, 2);
+        let mut p = self.mmap.borrow_mut().page_in_buffer_mut(&mut buf, 2);
         p.id = 2;
         p.flags = FreeListPageFlag;
         p.count = 0;
 
-        p = self.page_in_buffer_mut(&mut buf, 3);
+        p = self.mmap.borrow_mut().page_in_buffer_mut(&mut buf, 3);
         p.id = 3;
         p.flags = LeafPageFlag;
         p.count = 0;
@@ -160,45 +261,9 @@ impl DBImpl {
         Ok(())
     }
 
-    fn page_in_buffer_mut<'a>(&mut self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
-        Page::from_buf_mut(&mut buf[(id * self.page_size) as usize..])
-    }
-
-    fn page_in_buffer<'a>(&self, buf: &'a [u8], id: u32) -> &'a Page {
-        Page::from_buf(&buf[(id * self.page_size) as usize..])
-    }
-
-    pub(crate) fn page(&self, id: Pgid) -> *const Page {
-        self.page_in_buffer(&self.mmap.as_ref().unwrap(), id as u32)
-    }
-
-    fn mmap_size(&self, mut size: u64) -> NKResult<u64> {
-        for i in 15..=30 {
-            if size <= 1 << i {
-                return Ok(1 << i);
-            }
-        }
-        if size > MAX_MAP_SIZE {
-            return Err(NKError::Unexpected("mmap too large".to_string()));
-        }
-        let remainder = size % MAX_MMAP_STEP;
-        if remainder > 0 {
-            size += MAX_MAP_SIZE - remainder;
-        };
-        let page_size = self.page_size as u64;
-        if (size % page_size) != 0 {
-            size = ((size / page_size) + 1) * page_size;
-        };
-        // If we've exceeded the max size then only grow up to the max size.
-        if size > MAX_MAP_SIZE {
-            size = MAX_MAP_SIZE
-        };
-        Ok(size)
-    }
-
-    pub(crate) fn allocate(&mut self, count: usize) -> NKResult<OwnerPage> {
+    pub(crate) fn allocate(&self, count: usize) -> NKResult<OwnerPage> {
         let mut page = if count == 1 {
-            if let Some(p) = self.page_pool.pop() {
+            if let Some(p) = self.page_pool.borrow_mut().pop() {
                 OwnerPage::from_vec(p)
             } else {
                 OwnerPage::from_vec(vec![0u8; get_page_size()])
@@ -210,14 +275,14 @@ impl DBImpl {
         let p = page.to_page();
         p.overflow = (count - 1) as u32;
 
-        p.id = self.freelist.allocate(count);
+        p.id = self.freelist.borrow_mut().allocate(count);
 
         if p.id != 0 {
             return Ok(page);
         }
         let minsz = (((p.id + count as Pgid + 1) as usize) * get_page_size()) as u64;
-        if minsz >= self.db_size {
-            self.set_mmap(minsz)?;
+        if minsz >= self.mmap.borrow().db_size {
+            self.mmap.borrow_mut().set_mmap(&self.file, minsz)?;
         }
 
         (*(self.rwtx.as_ref().unwrap().0)).meta.borrow_mut().pgid += count as Pgid;
@@ -225,58 +290,17 @@ impl DBImpl {
         Ok(page)
     }
 
-    pub(crate) fn set_mmap(&mut self, mut min_size: u64) -> NKResult<()> {
-        let mut mmap_opts = memmap::MmapOptions::new();
-
-        let mut size = self
-            .file
-            .metadata()
-            .map_err(|e| NKError::DBOpenFail(e))?
-            .len();
-        println!("size:{}", size);
-        if size < min_size {
-            size = min_size;
-        }
-        min_size = self.mmap_size(size)?;
-        println!("min_size:{}", min_size);
-        drop(self.mmap.as_deref());
-        let nmmap = unsafe {
-            mmap_opts
-                .offset(0)
-                .len(min_size as usize)
-                .map(&self.file)
-                .map_err(|e| format!("mmap failed: {}", e))?
-        };
-        let meta0 = self.page_in_buffer(&nmmap, 0).meta();
-        let meta1 = self.page_in_buffer(&nmmap, 1).meta();
-        meta0.validate()?;
-        meta1.validate()?;
-        self.meta0 = meta0;
-        self.meta1 = meta1;
-        self.mmap = Some(nmmap);
-        self.db_size = min_size as u64;
-        Ok(())
+    pub fn page(&self, id: Pgid) -> *const Page {
+        self.mmap.borrow().page(id)
     }
 
-    pub(crate) fn meta(&self) -> Meta {
-        unsafe {
-            let mut metaA = self.meta0;
-            let mut metaB = self.meta1;
-            if (*self.meta1).txid > (*self.meta0).txid {
-                metaA = self.meta1;
-                metaB = self.meta0;
-            }
-            if (*metaA).validate().is_ok() {
-                return *metaA.clone();
-            }
-            if (*metaB).validate().is_ok() {
-                return *metaB.clone();
-            }
-            panic!("niki.DB.meta(): invalid meta pages")
-        }
+    pub fn get_page_size(&self) -> u32 {
+        self.mmap.borrow().page_size
     }
 
-    pub fn update(&self) {}
+    pub fn meta(&self) -> Meta {
+        self.mmap.borrow().meta()
+    }
 }
 
 #[cfg(test)]
