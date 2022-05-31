@@ -102,7 +102,7 @@ impl Bucket {
 
         (*c.node()?)
             .borrow_mut()
-            .put(self, key, key, value.as_slice(), 0, BucketLeafFlag);
+            .put(key, key, value.as_slice(), 0, BucketLeafFlag);
 
         self.bucket(key)
     }
@@ -126,7 +126,7 @@ impl Bucket {
         if Some(key) == item.0 && (item.2 & BucketLeafFlag) == 1 {
             return Err(NKError::ErrBucketNotFound);
         }
-        (*c.node()?).borrow_mut().put(self, key, key, value, 0, 0);
+        (*c.node()?).borrow_mut().put(key, key, value, 0, 0);
         Ok(())
     }
 
@@ -159,17 +159,33 @@ impl Bucket {
         value
     }
 
-    pub(crate) fn node(&mut self, pgid: Pgid, parent: Weak<RefCell<NodeImpl>>) -> Node {
+    pub(crate) fn node(&mut self, pgid: Pgid, parent: Option<Weak<RefCell<NodeImpl>>>) -> Node {
         if let Some(node) = self.nodes.get(&pgid) {
             return node.clone();
         }
-        let n = NodeImpl::new(self).parent(parent.clone()).build();
+
+        let n = if let Some(p) = parent {
+            let parent_node = p.upgrade().unwrap();
+            let n = NodeImpl::new(self).parent(p.clone()).build();
+            (*parent_node).borrow_mut().children.push(n.clone());
+            n
+        } else {
+            let n = NodeImpl::new(self).build();
+            self.root_node = Some(n.clone());
+            n
+        };
+
         if self.page.is_none() {
             let p = self.tx().unwrap().db().page(pgid);
             (*n).borrow_mut().read(unsafe { &*p });
         }
         self.nodes.insert(pgid, n.clone());
         n
+    }
+
+    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) {
+        let root = self.root_node.as_ref().unwrap().clone();
+        (*root).borrow_mut().spill(atx);
     }
 }
 

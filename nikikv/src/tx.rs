@@ -29,7 +29,12 @@ impl Tx {
         self.0.root.borrow_mut().create_bucket(name);
     }
 
-    pub(crate) fn commit() -> NKResult<()> {
+    fn tx(&self) -> Arc<TxImpl> {
+        self.0.clone()
+    }
+
+    pub(crate) fn commit(&mut self) -> NKResult<()> {
+        self.tx().root.borrow_mut().spill(self.0.clone());
         Ok(())
     }
     // pub(crate) fn allocate(&self, count: usize) -> NKResult<OwnerPage> {

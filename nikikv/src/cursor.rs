@@ -275,17 +275,16 @@ impl<'a> Cursor<'a> {
         let mut elem = self.stack.first().unwrap();
         let mut n = match &elem.page_node {
             PageNode::Node(n) => n.clone(),
-            PageNode::Page(p) => self.bucket.node(elem.get_page(p).id, Weak::new()),
+            PageNode::Page(p) => self.bucket.node(elem.get_page(p).id, None),
         };
 
         for e in self.stack[..self.stack.len() - 1].iter() {
             let child = (*n)
                 .borrow_mut()
-                .child_at(self.bucket, e.index, Rc::downgrade(&n));
+                .child_at(self.bucket, e.index, Some(Rc::downgrade(&n)));
             n = child;
         }
 
         Ok(n)
     }
 }
-

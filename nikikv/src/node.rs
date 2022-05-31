@@ -17,7 +17,7 @@ use std::ops::Sub;
 use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::rc::Weak;
-use std::sync::Weak as ArcWeak;
+use std::sync::{Arc, Weak as ArcWeak};
 
 pub(crate) type Node = Rc<RefCell<NodeImpl>>;
 
@@ -30,11 +30,11 @@ pub(crate) struct NodeImpl {
     // pub(crate) bucket: *mut Bucket,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
-    pub(crate) parent: Weak<RefCell<NodeImpl>>,
+    pub(crate) parent: Option<Weak<RefCell<NodeImpl>>>,
     unbalanced: bool,
     spilled: bool,
     pub(crate) pgid: Pgid,
-    children: Vec<Node>,
+    pub(crate) children: Vec<Node>,
     key: Option<Vec<u8>>,
 }
 
@@ -44,7 +44,7 @@ impl NodeImpl {
             //  bucket: bucket,
             is_leaf: false,
             inodes: Vec::new(),
-            parent: Weak::new(),
+            parent: None,
             unbalanced: false,
             spilled: false,
             pgid: 0,
@@ -59,7 +59,7 @@ impl NodeImpl {
     }
 
     pub fn parent(mut self, parent: Weak<RefCell<NodeImpl>>) -> NodeImpl {
-        self.parent = parent;
+        self.parent = Some(parent);
         self
     }
 
@@ -71,7 +71,7 @@ impl NodeImpl {
         &self,
         bucket: &mut Bucket,
         index: usize,
-        parent: Weak<RefCell<NodeImpl>>,
+        parent: Option<Weak<RefCell<NodeImpl>>>,
     ) -> Node {
         if self.is_leaf {
             panic!("invalid childAt{} on a leaf node", index);
@@ -125,20 +125,20 @@ impl NodeImpl {
 
     pub(crate) fn put(
         &mut self,
-        bucket: &Bucket,
         old_key: &[u8],
         new_key: &[u8],
         value: &[u8],
         pgid: Pgid,
         flags: u32,
     ) {
-        if pgid > bucket.tx().unwrap().meta.borrow().pgid {
-            panic!(
-                "pgid {} above high water mark {}",
-                pgid,
-                bucket.tx().unwrap().meta.borrow().pgid,
-            )
-        } else if old_key.len() <= 0 {
+        // if pgid > bucket.tx().unwrap().meta.borrow().pgid {
+        //     panic!(
+        //         "pgid {} above high water mark {}",
+        //         pgid,
+        //         bucket.tx().unwrap().meta.borrow().pgid,
+        //     )
+        // } else
+        if old_key.len() <= 0 {
             panic!("put: zero-length old key")
         } else if new_key.len() <= 0 {
             panic!("put: zero-length new key")
@@ -208,28 +208,59 @@ impl NodeImpl {
     fn split() {}
 
     //node spill
-    pub(super) fn spill(&mut self, atx: ArcWeak<TxImpl>) -> NKResult<()> {
-        let mut tx = atx.upgrade().map(Tx).unwrap();
-        let mut db = tx.0.db();
+    pub(super) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
+        if self.spilled {
+            return Ok(());
+        }
+        self.children.sort_by(|a, b| {
+            (**a).borrow().inodes[0]
+                .key
+                .cmp(&(**b).borrow().inodes[0].key)
+        });
+        for child in self.children.clone() {
+            (*child).borrow_mut().spill(atx.clone())?;
+        }
+        let mut tx = atx.clone();
+        let mut db = tx.db();
 
         if self.pgid > 0 {
             db.freelist
                 .borrow_mut()
-                .free(tx.0.meta.borrow().txid, unsafe { &*db.page(self.pgid) });
+                .free(tx.meta.borrow().txid, unsafe { &*db.page(self.pgid) });
             self.pgid = 0;
         }
 
         let mut p = db.allocate(self.size() / db.get_page_size() as usize + 1)?;
         let page = p.to_page();
-        if page.id >= tx.0.meta.borrow().pgid {
+        if page.id >= tx.meta.borrow().pgid {
             panic!(
                 "pgid {} above high water mark{}",
                 page.id,
-                tx.0.meta.borrow().pgid
+                tx.meta.borrow().pgid
             );
         }
         self.pgid = page.id;
         self.write(page);
+        tx.pages.borrow_mut().insert(self.pgid, p);
+        self.spilled = true;
+
+        if let Some(parent) = &mut self.parent {
+            let mut parent_node = parent.upgrade().unwrap();
+            if let Some(key) = &self.key {
+                (*parent_node)
+                    .borrow_mut()
+                    .put(key, key, &vec![], self.pgid, 0);
+            } else {
+                let inode = self.inodes.first().unwrap();
+                (*parent_node)
+                    .borrow_mut()
+                    .put(&inode.key, &inode.key, &vec![], self.pgid, 0);
+                self.key = Some(inode.key.clone());
+            }
+            self.children.clear();
+            return (*parent_node).borrow_mut().spill(atx.clone());
+        }
+
         Ok(())
     }
 }
