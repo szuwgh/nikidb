@@ -314,13 +314,13 @@ mod tests {
     #[test]
     fn test_db_mmap() {
         let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        (*db.0).borrow_mut().set_mmap2(32769);
+        //  (*db.0).borrow_mut().set_mmap(32769);
     }
 
     #[test]
     fn test_tx_create_bucket() {
-        let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        let mut tx = db.begin();
+        let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let mut tx = db.begin_tx();
         tx.create_bucket("aaa".as_bytes());
     }
 }

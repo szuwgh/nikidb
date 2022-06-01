@@ -34,19 +34,23 @@ impl Tx {
     }
 
     pub(crate) fn commit(&mut self) -> NKResult<()> {
-        self.tx().root.borrow_mut().spill(self.0.clone());
+        let tx = self.tx();
+        let db = tx.db();
+        tx.root.borrow_mut().spill(self.0.clone())?;
+        //回收旧的freelist列表
+        db.freelist
+            .borrow_mut()
+            .free(tx.meta.borrow().txid, unsafe {
+                &*db.page(tx.meta.borrow().freelist)
+            });
+        let mut p = db.allocate(db.freelist.borrow().size() / db.get_page_size() as usize + 1)?;
+        let page = p.to_page();
+        db.freelist.borrow_mut().write(page);
+        tx.meta.borrow_mut().freelist = page.id;
+        tx.pages.borrow_mut().insert(page.id, p);
+
         Ok(())
     }
-    // pub(crate) fn allocate(&self, count: usize) -> NKResult<OwnerPage> {
-    //     let mut page = (*(self.0.db())).borrow_mut().allocate(count)?;
-    //     Ok(page)
-    // }
-
-    // pub(crate) fn page(&self, id: Pgid) -> *const Page {
-    //     let db = (*(self.0.db())).borrow();
-    //     let p = db.page(id);
-    //     unsafe { &*p }
-    // }
 }
 
 pub(crate) struct TxImpl {
@@ -71,4 +75,6 @@ impl TxImpl {
     pub(crate) fn db(&self) -> Arc<DBImpl> {
         self.dbImpl.borrow().clone()
     }
+
+    pub(crate) fn write() {}
 }

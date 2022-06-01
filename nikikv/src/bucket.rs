@@ -4,11 +4,9 @@ use crate::node::{Node, NodeImpl};
 use crate::page::{BucketLeafFlag, OwnerPage, Page, Pgid};
 use crate::tx::TxImpl;
 use crate::u8_to_struct_mut;
-use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::mem::size_of;
-use std::ops::Index;
 use std::ptr::{null, null_mut};
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Weak as ArcWeak};
@@ -183,9 +181,10 @@ impl Bucket {
         n
     }
 
-    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) {
+    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
         let root = self.root_node.as_ref().unwrap().clone();
-        (*root).borrow_mut().spill(atx);
+        (*root).borrow_mut().spill(atx)?;
+        Ok(())
     }
 }
 

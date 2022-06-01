@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-
 use crate::{
-    page::{Page, Pgid},
+    page::{FreeListPageFlag, Page, Pgid},
     tx::{self, Txid},
 };
+use std::collections::HashMap;
+use std::mem::size_of;
 
 pub(crate) struct FreeList {
     ids: Vec<Pgid>,
@@ -22,6 +22,26 @@ impl Default for FreeList {
 }
 
 impl FreeList {
+    pub(crate) fn size(&self) -> usize {
+        let mut count = self.count();
+        if count > 0xFFFF {
+            count += 1;
+        }
+        return Page::header_size() + size_of::<Pgid>() * count;
+    }
+
+    fn count(&self) -> usize {
+        self.pending_count() + self.free_count()
+    }
+
+    fn free_count(&self) -> usize {
+        self.ids.len()
+    }
+
+    fn pending_count(&self) -> usize {
+        self.pending.iter().map(|x| x.1.len()).sum()
+    }
+
     // 该接口主要用于写事务提交之前释放已占用page。
     // 将待释放的page id加入到pending和cache中。
     // 如果待释放的page的overflow大于零，则对其关联的其他page做同样的处理。
@@ -104,10 +124,43 @@ impl FreeList {
         }
         self.cache = new_cache;
     }
+
+    pub(crate) fn write(&self, p: &mut Page) {
+        p.flags |= FreeListPageFlag;
+
+        let count = self.count();
+        if count == 0 {
+            p.count = count as u16;
+        } else if count < 0xFFFF {
+            p.count = count as u16;
+            let m = p.freelist_mut();
+            self.copy_all(m);
+            m.sort_unstable();
+        } else {
+            p.count = 0xFFFF;
+            let m = p.freelist_mut();
+            m[0] = count as u64;
+            self.copy_all(&mut m[1..]);
+            m[1..].sort_unstable();
+        }
+    }
+
+    pub(crate) fn copy_all(&self, mut dst: &mut [Pgid]) {
+        let mut m: Vec<Pgid> = Vec::with_capacity(self.pending_count());
+        for list in self.pending.values() {
+            dst[..list.len()].copy_from_slice(list);
+            dst = &mut dst[list.len()..];
+        }
+        dst[..self.ids.len()].copy_from_slice(self.ids.as_slice())
+    }
+
+    fn merge_pgids(dst: &mut [Pgid], a: &[Pgid], b: &[Pgid]) {}
 }
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
     #[test]
     fn test_freelist_allocate() {
@@ -122,5 +175,50 @@ mod tests {
         let pgid = freelist.allocate(5);
         println!("pgid:{}", pgid);
         println!("ids:{:?}", freelist.ids);
+    }
+
+    #[test]
+    fn test_count() {
+        let ids: Vec<Pgid> = vec![2, 3, 6, 7, 5];
+
+        let id1: Vec<Pgid> = vec![2, 3, 6, 7];
+        let id2: Vec<Pgid> = vec![2, 3, 6, 7];
+
+        let mut map: HashMap<Txid, Vec<Pgid>> = HashMap::new();
+
+        map.insert(1, id1);
+        map.insert(2, id2);
+
+        let mut freelist = FreeList {
+            ids: ids,
+            pending: map,
+            cache: HashMap::new(),
+        };
+
+        println!("free_count:{}", freelist.free_count());
+        println!("pending_count:{:?}", freelist.pending_count());
+    }
+
+    #[test]
+    fn test_copy_all() {
+        let ids: Vec<Pgid> = vec![1, 2, 5, 6, 7];
+
+        let id1: Vec<Pgid> = vec![3, 8];
+        let id2: Vec<Pgid> = vec![9, 10];
+
+        let mut map: HashMap<Txid, Vec<Pgid>> = HashMap::new();
+
+        map.insert(1, id1);
+        map.insert(2, id2);
+
+        let mut freelist = FreeList {
+            ids: ids,
+            pending: map,
+            cache: HashMap::new(),
+        };
+        let mut dst: Vec<Pgid> = vec![0; 10];
+        freelist.copy_all(&mut dst);
+        dst.sort_unstable();
+        println!("dst:{:?}", dst);
     }
 }

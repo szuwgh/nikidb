@@ -200,6 +200,10 @@ impl Page {
         self.elements::<Pgid>()
     }
 
+    pub(crate) fn freelist_mut(&mut self) -> &mut [Pgid] {
+        self.elements_mut::<Pgid>()
+    }
+
     pub(crate) fn leaf_page_element(&self, index: usize) -> &LeafPageElement {
         self.leaf_page_elements().get(index).unwrap()
     }
