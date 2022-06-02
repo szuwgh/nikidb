@@ -30,6 +30,8 @@ pub(crate) enum NKError {
     ErrValueTooLarge,
     #[error("Bucket not found")]
     ErrBucketNotFound,
+    #[error("IncompatibleValue")]
+    IncompatibleValue,
 }
 
 impl From<&str> for NKError {

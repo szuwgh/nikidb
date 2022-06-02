@@ -30,6 +30,7 @@ impl DB {
     fn begin_rwtx(&mut self) -> Tx {
         let mut tx = Tx(Arc::new(TxImpl::build(self.0.clone())));
         tx.init();
+        *(self.0.rwtx.borrow_mut()) = Some(tx.clone());
         tx
     }
 
@@ -41,11 +42,11 @@ impl DB {
 }
 
 pub(crate) struct DBImpl {
-    file: File,
+    file: RefCell<File>,
     mmap: RefCell<MmapUtil>,
     page_pool: RefCell<Vec<Vec<u8>>>,
     pub(crate) freelist: RefCell<FreeList>,
-    rwtx: Option<Tx>,
+    rwtx: RefCell<Option<Tx>>,
 }
 
 struct MmapUtil {
@@ -184,8 +185,9 @@ impl DBImpl {
             println!("init db");
             db.init()?;
         } else {
-            let mut buf = vec![0; 0x1000];
+            let mut buf = vec![0; get_page_size()];
             db.file
+                .borrow()
                 .read_at(&mut buf, 0)
                 .map_err(|_e| ("can't read to file", _e))?;
             let m = db.mmap.borrow().page_in_buffer(&buf, 0).meta();
@@ -195,7 +197,7 @@ impl DBImpl {
         }
         db.mmap
             .borrow_mut()
-            .set_mmap(&db.file, options.initial_mmap_size)?;
+            .set_mmap(&db.file.borrow(), options.initial_mmap_size)?;
         db.freelist
             .borrow_mut()
             .read(unsafe { &*db.mmap.borrow().page(db.mmap.borrow().meta().freelist) });
@@ -204,11 +206,11 @@ impl DBImpl {
 
     fn new(file: File) -> DBImpl {
         Self {
-            file: file,
+            file: RefCell::new(file),
             mmap: RefCell::new(MmapUtil::default()),
             page_pool: RefCell::new(Vec::new()),
             freelist: RefCell::new(FreeList::default()),
-            rwtx: None,
+            rwtx: RefCell::new(None),
         }
     }
 
@@ -243,21 +245,25 @@ impl DBImpl {
         p.flags = LeafPageFlag;
         p.count = 0;
 
-        self.write_at(&mut buf, 0)?;
+        self.write_at(&buf, 0)?;
         self.sync()?;
 
         Ok(())
     }
 
-    fn write_at(&mut self, buf: &mut [u8], pos: u64) -> NKResult<()> {
+    pub(crate) fn write_at(&self, buf: &[u8], pos: u64) -> NKResult<()> {
         self.file
+            .borrow_mut()
             .write_at(buf, pos)
             .map_err(|_e| ("can't write to file", _e))?;
         Ok(())
     }
 
-    fn sync(&mut self) -> NKResult<()> {
-        self.file.flush().map_err(|_e| ("can't flush file", _e))?;
+    pub(crate) fn sync(&self) -> NKResult<()> {
+        self.file
+            .borrow_mut()
+            .flush()
+            .map_err(|_e| ("can't flush file", _e))?;
         Ok(())
     }
 
@@ -272,7 +278,7 @@ impl DBImpl {
             OwnerPage::from_vec(vec![0u8; get_page_size() * count])
         };
 
-        let p = page.to_page();
+        let p = page.to_page_mut();
         p.overflow = (count - 1) as u32;
 
         p.id = self.freelist.borrow_mut().allocate(count);
@@ -280,26 +286,39 @@ impl DBImpl {
         if p.id != 0 {
             return Ok(page);
         }
+        p.id = (*(self.rwtx.borrow_mut().as_ref().unwrap().0))
+            .meta
+            .borrow()
+            .pgid;
         let minsz = (((p.id + count as Pgid + 1) as usize) * get_page_size()) as u64;
         if minsz >= self.mmap.borrow().db_size {
-            self.mmap.borrow_mut().set_mmap(&self.file, minsz)?;
+            self.mmap
+                .borrow_mut()
+                .set_mmap(&self.file.borrow(), minsz)?;
         }
 
-        (*(self.rwtx.as_ref().unwrap().0)).meta.borrow_mut().pgid += count as Pgid;
+        (*(self.rwtx.borrow_mut().as_ref().unwrap().0))
+            .meta
+            .borrow_mut()
+            .pgid += count as Pgid;
 
         Ok(page)
     }
 
-    pub fn page(&self, id: Pgid) -> *const Page {
+    pub(crate) fn page(&self, id: Pgid) -> *const Page {
         self.mmap.borrow().page(id)
     }
 
-    pub fn get_page_size(&self) -> u32 {
+    pub(crate) fn get_page_size(&self) -> u32 {
         self.mmap.borrow().page_size
     }
 
-    pub fn meta(&self) -> Meta {
+    pub(crate) fn meta(&self) -> Meta {
         self.mmap.borrow().meta()
+    }
+
+    pub(crate) fn page_in_buffer_mut<'a>(&self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
+        self.mmap.borrow_mut().page_in_buffer_mut(buf, id)
     }
 }
 
@@ -314,13 +333,24 @@ mod tests {
     #[test]
     fn test_db_mmap() {
         let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let mut tx = unsafe { (&*(db.0.mmap.borrow().meta0)).txid };
+        println!("txid:{}", tx);
+        let mut buf = vec![0; 4096];
+        let page = db.0.mmap.borrow_mut().page_in_buffer_mut(&mut buf, 0);
+        let meta = page.meta_mut();
+        meta.txid = 2;
+        db.0.write_at(&buf, 0).unwrap();
+        db.0.sync().unwrap();
+        tx = unsafe { (&*(db.0.mmap.borrow().meta0)).txid };
+        println!("txid:{}", tx);
         //  (*db.0).borrow_mut().set_mmap(32769);
     }
 
     #[test]
     fn test_tx_create_bucket() {
         let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        let mut tx = db.begin_tx();
-        tx.create_bucket("aaa".as_bytes());
+        let mut tx1 = db.begin_rwtx();
+        tx1.create_bucket("aaa".as_bytes());
+        tx1.commit();
     }
 }

@@ -38,7 +38,7 @@ pub(crate) struct Page {
 }
 
 pub(crate) struct OwnerPage {
-    value: Vec<u8>,
+    pub(crate) value: Vec<u8>,
 }
 
 impl OwnerPage {
@@ -46,8 +46,12 @@ impl OwnerPage {
         Self { value: value }
     }
 
-    pub(crate) fn to_page(&mut self) -> &mut Page {
+    pub(crate) fn to_page_mut(&mut self) -> &mut Page {
         crate::u8_to_struct_mut(&mut self.value)
+    }
+
+    pub(crate) fn to_page(&self) -> &Page {
+        crate::u8_to_struct(&self.value)
     }
 }
 
@@ -131,6 +135,7 @@ impl Meta {
 
     pub(crate) fn validate(&self) -> NKResult<()> {
         if self.magic != magic {
+            println!("{},{}", self.magic, magic);
             return Err(NKError::ErrInvalid);
         } else if self.version != version {
             return Err(NKError::ErrVersionMismatch);
@@ -138,6 +143,15 @@ impl Meta {
             return Err(NKError::ErrChecksum);
         }
         Ok(())
+    }
+
+    pub(crate) fn write(&mut self, p: &mut Page) {
+        p.id = self.txid % 2;
+        p.flags |= MetaPageFlag;
+        self.checksum = self.sum64();
+        let meta = p.meta_mut();
+        *meta = *self;
+        println!("meta magic {}", meta.magic);
     }
 }
 

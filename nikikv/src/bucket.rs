@@ -122,13 +122,20 @@ impl Bucket {
         let item = c.seek(key)?;
 
         if Some(key) == item.0 && (item.2 & BucketLeafFlag) == 1 {
-            return Err(NKError::ErrBucketNotFound);
+            return Err(NKError::IncompatibleValue);
         }
         (*c.node()?).borrow_mut().put(key, key, value, 0, 0);
         Ok(())
     }
 
-    pub(crate) fn get(key: &[u8]) {}
+    pub(crate) fn get(&mut self, key: &[u8]) -> Option<&[u8]> {
+        let mut c = self.cursor();
+        let item = c.seek(key).unwrap();
+        if Some(key) == item.0 && (item.2 & BucketLeafFlag) == 1 {
+            return None;
+        }
+        item.1
+    }
 
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
         if let Some(node) = self.nodes.get(&id) {

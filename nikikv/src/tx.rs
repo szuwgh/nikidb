@@ -38,23 +38,32 @@ impl Tx {
         let db = tx.db();
         tx.root.borrow_mut().spill(self.0.clone())?;
         //回收旧的freelist列表
-        db.freelist
-            .borrow_mut()
-            .free(tx.meta.borrow().txid, unsafe {
-                &*db.page(tx.meta.borrow().freelist)
-            });
-        let mut p = db.allocate(db.freelist.borrow().size() / db.get_page_size() as usize + 1)?;
-        let page = p.to_page();
+        {
+            db.freelist
+                .borrow_mut()
+                .free(tx.meta.borrow().txid, unsafe {
+                    &*db.page(tx.meta.borrow().freelist)
+                });
+        };
+        let size = db.freelist.borrow().size();
+        let mut p = db.allocate(size / db.get_page_size() as usize + 1)?;
+        let page = p.to_page_mut();
         db.freelist.borrow_mut().write(page);
         tx.meta.borrow_mut().freelist = page.id;
         tx.pages.borrow_mut().insert(page.id, p);
+
+        //write dirty page
+        tx.write()?;
+
+        //write meta
+        tx.write_meta()?;
 
         Ok(())
     }
 }
 
 pub(crate) struct TxImpl {
-    dbImpl: RefCell<Arc<DBImpl>>,
+    dbImpl: Arc<DBImpl>,
     pub(crate) root: RefCell<Bucket>,
     pub(crate) meta: RefCell<Meta>,
     pub(crate) pages: RefCell<HashMap<Pgid, OwnerPage>>,
@@ -63,7 +72,7 @@ pub(crate) struct TxImpl {
 impl TxImpl {
     pub(crate) fn build(db: Arc<DBImpl>) -> TxImpl {
         let tx = Self {
-            dbImpl: RefCell::new(db.clone()),
+            dbImpl: db.clone(),
             root: RefCell::new(Bucket::new(0, Weak::new())),
             meta: RefCell::new(db.meta()),
             pages: RefCell::new(HashMap::new()),
@@ -73,8 +82,41 @@ impl TxImpl {
     }
 
     pub(crate) fn db(&self) -> Arc<DBImpl> {
-        self.dbImpl.borrow().clone()
+        self.dbImpl.clone()
     }
 
-    pub(crate) fn write() {}
+    pub(crate) fn write(&self) -> NKResult<()> {
+        let mut pages = self
+            .pages
+            .borrow_mut()
+            .drain()
+            .map(|(k, v)| (k, v))
+            .collect::<Vec<(u64, OwnerPage)>>();
+        pages.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for p in pages.iter() {
+            let page = p.1.to_page();
+            let page_size = self.dbImpl.get_page_size();
+            let offset = page.id * page_size as u64;
+            println!("offset:{}", offset);
+            self.db().write_at(&p.1.value, offset)?;
+        }
+        self.db().sync()?;
+        Ok(())
+    }
+
+    pub(crate) fn write_meta(&self) -> NKResult<()> {
+        let page_size = self.db().get_page_size();
+        let mut buf = vec![0u8; page_size as usize];
+        let id = {
+            let p = self.db().page_in_buffer_mut(&mut buf, 0);
+            self.meta.borrow_mut().write(p);
+            p.id
+        };
+        println!("id:{},{}", id, page_size);
+        self.db().write_at(&buf, id * page_size as u64)?;
+
+        self.db().sync()?;
+        Ok(())
+    }
 }

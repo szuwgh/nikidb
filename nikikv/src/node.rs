@@ -220,8 +220,10 @@ impl NodeImpl {
         for child in self.children.clone() {
             (*child).borrow_mut().spill(atx.clone())?;
         }
-        let mut tx = atx.clone();
-        let mut db = tx.db();
+
+        self.children.clear();
+        let tx = atx.clone();
+        let db = tx.db();
 
         if self.pgid > 0 {
             db.freelist
@@ -231,7 +233,7 @@ impl NodeImpl {
         }
 
         let mut p = db.allocate(self.size() / db.get_page_size() as usize + 1)?;
-        let page = p.to_page();
+        let page = p.to_page_mut();
         if page.id >= tx.meta.borrow().pgid {
             panic!(
                 "pgid {} above high water mark{}",
