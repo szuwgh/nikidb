@@ -23,7 +23,7 @@ pub(crate) struct Bucket {
     pub(crate) weak_tx: ArcWeak<TxImpl>,
     root_node: Option<Node>,
     page: Option<OwnerPage>, // inline page
-    buckets: HashMap<Vec<u8>, Rc<RefCell<Bucket>>>,
+    buckets: HashMap<Vec<u8>, Bucket>,
 }
 
 #[derive(Clone)]
@@ -47,32 +47,34 @@ impl Bucket {
             },
             nodes: HashMap::new(),
             weak_tx: tx,
-            root_node: Some(NodeImpl::new(null_mut()).leaf(true).build()),
+            root_node: None, // Some(NodeImpl::new().leaf(true).build()),
             page: None,
             buckets: HashMap::new(),
         }
     }
 
-    pub(crate) fn bucket(&mut self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+    pub(crate) fn bucket(&mut self, key: &[u8]) -> NKResult<*mut Bucket> {
         if let Some(bucket) = self.buckets.get_mut(key) {
-            return Ok(bucket.clone());
+            return Ok(bucket);
         }
-        let item = {
+        let value = {
             let mut c = self.cursor();
-            c.seek_item(key)?
+            let item = c.seek_item(key)?;
+            if !key.eq(item.0.unwrap()) || (item.2 & BucketLeafFlag) == 0 {
+                return Err(NKError::ErrBucketNotFound);
+            }
+            item.1.unwrap().to_vec()
         };
-
-        if !key.eq(item.0.unwrap()) || (item.2 & BucketLeafFlag) == 0 {
-            return Err(NKError::ErrBucketNotFound);
+        let child = self.open_bucket(value)?;
+        self.buckets.insert(key.to_vec(), child);
+        if let Some(bucket) = self.buckets.get_mut(key) {
+            return Ok(bucket);
         }
 
-        let value = item.1.unwrap().to_vec();
-        let child = self.open_bucket(value)?;
-        self.buckets.insert(key.to_vec(), child.clone());
-        Ok(child.clone())
+        return Err(NKError::ErrBucketNotFound);
     }
 
-    fn open_bucket(&mut self, value: Vec<u8>) -> NKResult<Rc<RefCell<Bucket>>> {
+    fn open_bucket(&self, value: Vec<u8>) -> NKResult<Bucket> {
         let mut child = Bucket::new(0, self.weak_tx.clone());
         let ibucket = crate::u8_to_struct::<IBucket>(value.as_slice());
         child.ibucket = ibucket.clone();
@@ -81,10 +83,10 @@ impl Bucket {
             let page = &value[BucketHeaderSize..];
             child.page = Some(OwnerPage::from_vec(page.to_vec()));
         }
-        Ok(Rc::new(RefCell::new(child)))
+        Ok(child)
     }
 
-    pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<Rc<RefCell<Bucket>>> {
+    pub(crate) fn create_bucket(&mut self, key: &[u8]) -> NKResult<*mut Bucket> {
         let tx_clone = self.weak_tx.clone();
         let mut c = self.cursor();
         let item = c.seek(key)?;
@@ -96,6 +98,7 @@ impl Bucket {
             }
         }
         let mut bucket = Bucket::new(0, tx_clone); // root == 0 is inline bucket
+        bucket.root_node = Some(NodeImpl::new().leaf(true).build());
         let value = bucket.write();
 
         (*c.node()?)
@@ -138,6 +141,18 @@ impl Bucket {
     }
 
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
+        // inline page
+        if self.ibucket.root == 0 {
+            if id != 0 {
+                panic!("inline bucket non-zero page access(2): {} != 0", id)
+            }
+            if let Some(n) = &self.root_node {
+                return Ok(PageNode::Node(n.clone()));
+            }
+            if let Some(p) = &self.page {
+                return Ok(PageNode::Page(p.to_page()));
+            }
+        }
         if let Some(node) = self.nodes.get(&id) {
             return Ok(PageNode::Node(node.clone()));
         }
@@ -171,11 +186,11 @@ impl Bucket {
 
         let n = if let Some(p) = parent {
             let parent_node = p.upgrade().unwrap();
-            let n = NodeImpl::new(self).parent(p.clone()).build();
+            let n = NodeImpl::new().parent(p.clone()).build();
             (*parent_node).borrow_mut().children.push(n.clone());
             n
         } else {
-            let n = NodeImpl::new(self).build();
+            let n = NodeImpl::new().build();
             self.root_node = Some(n.clone());
             n
         };
@@ -188,9 +203,18 @@ impl Bucket {
         n
     }
 
+    fn inline_able(&self) {}
+
     pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
+        for b in self.buckets.values() {
+            // b.in
+        }
+
         let root = self.root_node.as_ref().unwrap().clone();
         (*root).borrow_mut().spill(atx)?;
+        let root_node = (*root).borrow().root(root.clone());
+        self.ibucket.root = root_node.borrow().pgid;
+        self.root_node = Some(root_node);
         Ok(())
     }
 }

@@ -39,7 +39,7 @@ pub(crate) struct NodeImpl {
 }
 
 impl NodeImpl {
-    pub(crate) fn new(bucket: *mut Bucket) -> NodeImpl {
+    pub(crate) fn new() -> NodeImpl {
         Self {
             //  bucket: bucket,
             is_leaf: false,
@@ -68,7 +68,7 @@ impl NodeImpl {
     }
 
     pub(crate) fn child_at(
-        &self,
+        &mut self,
         bucket: &mut Bucket,
         index: usize,
         parent: Option<Weak<RefCell<NodeImpl>>>,
@@ -205,10 +205,19 @@ impl NodeImpl {
         }
     }
 
+    pub(crate) fn root(&self, node: Node) -> Node {
+        if let Some(parent_node) = &self.parent {
+            let p = parent_node.upgrade().unwrap();
+            p.clone().borrow().root(p.clone())
+        } else {
+            node
+        }
+    }
+
     fn split() {}
 
     //node spill
-    pub(super) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
+    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
         if self.spilled {
             return Ok(());
         }
@@ -227,7 +236,8 @@ impl NodeImpl {
 
         if self.pgid > 0 {
             db.freelist
-                .borrow_mut()
+                .try_write()
+                .unwrap()
                 .free(tx.meta.borrow().txid, unsafe { &*db.page(self.pgid) });
             self.pgid = 0;
         }
@@ -290,6 +300,6 @@ mod tests {
     use super::*;
     #[test]
     fn test_node_new() {
-        let n = NodeImpl::new(null_mut()).build();
+        let n = NodeImpl::new().build();
     }
 }

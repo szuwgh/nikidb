@@ -6,14 +6,15 @@ use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ptr::null;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock, Weak};
 
 pub(crate) type Txid = u64;
 
 pub(crate) struct Tx(pub(crate) Arc<TxImpl>);
 
-// unsafe impl Sync for Tx {}
-// unsafe impl Send for Tx {}
+unsafe impl Sync for Tx {}
+unsafe impl Send for Tx {}
 
 impl Tx {
     pub(crate) fn clone(&self) -> Self {
@@ -22,11 +23,16 @@ impl Tx {
 
     pub(crate) fn init(&mut self) {
         let r = self.0.clone();
+        r.meta.borrow_mut().txid += 1;
         r.root.borrow_mut().weak_tx = Arc::downgrade(&self.0);
     }
 
-    pub(crate) fn create_bucket(&mut self, name: &[u8]) {
-        self.0.root.borrow_mut().create_bucket(name);
+    pub(crate) fn create_bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
+        self.0
+            .root
+            .borrow_mut()
+            .create_bucket(name)
+            .map(|m| unsafe { &mut *m })
     }
 
     fn tx(&self) -> Arc<TxImpl> {
@@ -40,18 +46,21 @@ impl Tx {
         //回收旧的freelist列表
         {
             db.freelist
-                .borrow_mut()
+                .try_write()
+                .unwrap()
                 .free(tx.meta.borrow().txid, unsafe {
                     &*db.page(tx.meta.borrow().freelist)
                 });
         };
-        let size = db.freelist.borrow().size();
+        let size = db.freelist.try_read().unwrap().size();
         let mut p = db.allocate(size / db.get_page_size() as usize + 1)?;
         let page = p.to_page_mut();
-        db.freelist.borrow_mut().write(page);
+        db.freelist.try_write().unwrap().write(page);
         tx.meta.borrow_mut().freelist = page.id;
         tx.pages.borrow_mut().insert(page.id, p);
 
+        tx.meta.borrow_mut().root.root = tx.root.borrow().ibucket.root;
+        println!("root pgid:{}", tx.root.borrow().ibucket.root);
         //write dirty page
         tx.write()?;
 

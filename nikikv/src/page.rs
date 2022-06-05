@@ -4,6 +4,7 @@ use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
 use fnv::FnvHasher;
 use memoffset::offset_of;
+use std::borrow::Borrow;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
@@ -142,6 +143,7 @@ impl Meta {
         } else if self.checksum != self.sum64() {
             return Err(NKError::ErrChecksum);
         }
+        println!("meta root bucket:{}", self.root.root);
         Ok(())
     }
 
@@ -151,7 +153,6 @@ impl Meta {
         self.checksum = self.sum64();
         let meta = p.meta_mut();
         *meta = *self;
-        println!("meta magic {}", meta.magic);
     }
 }
 
