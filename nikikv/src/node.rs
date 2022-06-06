@@ -9,7 +9,7 @@ use crate::{magic, version};
 use fnv::FnvHasher;
 use memoffset::offset_of;
 use std::borrow::BorrowMut;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
@@ -19,13 +19,10 @@ use std::rc::Rc;
 use std::rc::Weak;
 use std::sync::{Arc, Weak as ArcWeak};
 
-pub(crate) type Node = Rc<RefCell<NodeImpl>>;
+#[derive(Clone)]
+pub(crate) struct Node(pub(crate) Rc<RefCell<NodeImpl>>);
 
-// fn return_node() -> Node {
-//     RefCell::new(NodeImpl::new(false))
-// }
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct NodeImpl {
     // pub(crate) bucket: *mut Bucket,
     pub(crate) is_leaf: bool,
@@ -64,7 +61,17 @@ impl NodeImpl {
     }
 
     pub(crate) fn build(self) -> Node {
-        Rc::new(RefCell::new(self))
+        Node(Rc::new(RefCell::new(self)))
+    }
+}
+
+impl Node {
+    pub(crate) fn node_mut(&mut self) -> RefMut<'_, NodeImpl> {
+        (*(self.0)).borrow_mut()
+    }
+
+    pub(crate) fn node(&self) -> Ref<'_, NodeImpl> {
+        self.0.borrow()
     }
 
     pub(crate) fn child_at(
@@ -73,37 +80,38 @@ impl NodeImpl {
         index: usize,
         parent: Option<Weak<RefCell<NodeImpl>>>,
     ) -> Node {
-        if self.is_leaf {
+        if self.node().is_leaf {
             panic!("invalid childAt{} on a leaf node", index);
         }
-        bucket.node(self.inodes[index].pgid, parent)
+        bucket.node(self.node().inodes[index].pgid, parent)
     }
 
     pub(crate) fn size(&self) -> usize {
         let mut sz = Page::header_size();
         let elsz = self.page_element_size();
-        for i in 0..self.inodes.len() {
-            let item = self.inodes.get(i).unwrap();
+        let a = self.node();
+        for i in 0..a.inodes.len() {
+            let item = a.inodes.get(i).unwrap();
             sz += elsz + item.key.len() + item.value.len();
         }
         sz
     }
 
     fn page_element_size(&self) -> usize {
-        if self.is_leaf {
+        if self.node().is_leaf {
             return LeafPageElementSize;
         }
         BranchPageElementSize
     }
 
     pub(crate) fn read(&mut self, p: &Page) {
-        self.pgid = p.id;
-        self.is_leaf = (p.flags & LeafPageFlag) != 0;
+        self.node_mut().pgid = p.id;
+        self.node_mut().is_leaf = (p.flags & LeafPageFlag) != 0;
         let count = p.count as usize;
-        self.inodes = Vec::with_capacity(count);
+        self.node_mut().inodes = Vec::with_capacity(count);
         for i in 0..count {
             let mut inode = INode::new();
-            if self.is_leaf {
+            if self.node().is_leaf {
                 let elem = p.leaf_page_element(i);
                 inode.flags = elem.flags;
                 inode.key = elem.key().to_vec();
@@ -116,10 +124,11 @@ impl NodeImpl {
             assert!(inode.key.len() > 0, "read: zero-length inode key");
         }
 
-        if self.inodes.len() > 0 {
-            self.key = Some(self.inodes.first().unwrap().key.clone());
+        if self.node().inodes.len() > 0 {
+            let key = { self.node().inodes.first().unwrap().key.clone() };
+            self.node_mut().key = Some(key);
         } else {
-            self.key = None
+            self.node_mut().key = None
         }
     }
 
@@ -143,17 +152,21 @@ impl NodeImpl {
         } else if new_key.len() <= 0 {
             panic!("put: zero-length new key")
         }
-        let (exact, index) = match self
-            .inodes
-            .binary_search_by(|inode| inode.key.as_slice().cmp(old_key))
-        {
-            Ok(v) => (true, v),
-            Err(e) => (false, e),
+        let (exact, index) = {
+            match self
+                .node()
+                .inodes
+                .binary_search_by(|inode| inode.key.as_slice().cmp(old_key))
+            {
+                Ok(v) => (true, v),
+                Err(e) => (false, e),
+            }
         };
+        let mut n1 = self.node_mut();
         if !exact {
-            self.inodes.insert(index, INode::new());
+            n1.inodes.insert(index, INode::new());
         }
-        let inode = self.inodes.get_mut(index).unwrap();
+        let inode = n1.inodes.get_mut(index).unwrap();
         inode.flags = flags;
         inode.key = new_key.to_vec();
         inode.value = value.to_vec();
@@ -162,27 +175,31 @@ impl NodeImpl {
     }
 
     pub(crate) fn write(&self, p: &mut Page) {
-        if self.is_leaf {
+        if self.node().is_leaf {
             p.flags = LeafPageFlag;
         } else {
             p.flags = BranchPageFlag;
         }
-        if self.inodes.len() > 0xFFF {
-            panic!("inode overflow: {} (pgid={})", self.inodes.len(), p.id);
+        if self.node().inodes.len() > 0xFFF {
+            panic!(
+                "inode overflow: {} (pgid={})",
+                self.node().inodes.len(),
+                p.id
+            );
         }
-        p.count = self.inodes.len() as u16;
+        p.count = self.node().inodes.len() as u16;
         if p.count == 0 {
             return;
         }
 
         let mut buf_ptr = unsafe {
             p.data_ptr_mut()
-                .add(self.page_element_size() * self.inodes.len())
+                .add(self.page_element_size() * self.node().inodes.len())
         };
 
-        for (i, item) in self.inodes.iter().enumerate() {
+        for (i, item) in self.node().inodes.iter().enumerate() {
             assert!(item.key.len() > 0, "write: zero-length inode key");
-            if self.is_leaf {
+            if self.node().is_leaf {
                 let elem = p.leaf_page_element_mut(i);
                 elem.pos = unsafe { buf_ptr.sub(elem.as_ptr() as usize) } as u32;
                 elem.flags = item.flags as u32;
@@ -206,40 +223,50 @@ impl NodeImpl {
     }
 
     pub(crate) fn root(&self, node: Node) -> Node {
-        if let Some(parent_node) = &self.parent {
-            let p = parent_node.upgrade().unwrap();
-            p.clone().borrow().root(p.clone())
+        if let Some(parent_node) = &self.node().parent {
+            let p = parent_node.upgrade().map(Node).unwrap();
+            p.root(p.clone())
         } else {
             node
         }
     }
 
-    fn split() {}
+    fn rebalance(&mut self) {}
+
+    fn split(&mut self, page_size: u32) -> Vec<Node> {
+        let nodes: Vec<Node> = Vec::new();
+        nodes
+    }
+
+    fn split_two(&mut self) {}
 
     //node spill
     pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
-        if self.spilled {
+        if self.node().spilled {
             return Ok(());
         }
-        self.children.sort_by(|a, b| {
-            (**a).borrow().inodes[0]
-                .key
-                .cmp(&(**b).borrow().inodes[0].key)
-        });
-        for child in self.children.clone() {
-            (*child).borrow_mut().spill(atx.clone())?;
+
+        self.node_mut()
+            .children
+            .sort_by(|a, b| (*a).node().inodes[0].key.cmp(&(*b).node().inodes[0].key));
+        for mut child in self.node_mut().children.clone() {
+            child.spill(atx.clone())?;
         }
 
-        self.children.clear();
+        self.node_mut().children.clear();
         let tx = atx.clone();
         let db = tx.db();
 
-        if self.pgid > 0 {
+        let nodes = self.split(db.get_page_size());
+
+        if self.node().pgid > 0 {
             db.freelist
                 .try_write()
                 .unwrap()
-                .free(tx.meta.borrow().txid, unsafe { &*db.page(self.pgid) });
-            self.pgid = 0;
+                .free(tx.meta.borrow().txid, unsafe {
+                    &*db.page(self.node().pgid)
+                });
+            self.node_mut().pgid = 0;
         }
 
         let mut p = db.allocate(self.size() / db.get_page_size() as usize + 1)?;
@@ -251,28 +278,28 @@ impl NodeImpl {
                 tx.meta.borrow().pgid
             );
         }
-        self.pgid = page.id;
+        self.node_mut().pgid = page.id;
         self.write(page);
-        tx.pages.borrow_mut().insert(self.pgid, p);
-        self.spilled = true;
+        tx.pages.borrow_mut().insert(self.node().pgid, p);
+        self.node_mut().spilled = true;
 
-        if let Some(parent) = &mut self.parent {
-            let mut parent_node = parent.upgrade().unwrap();
-            if let Some(key) = &self.key {
-                (*parent_node)
-                    .borrow_mut()
-                    .put(key, key, &vec![], self.pgid, 0);
+        if let Some(parent) = &self.node().parent {
+            let mut parent_node = parent.upgrade().map(Node).unwrap();
+            if let Some(key) = &self.node().key {
+                parent_node.put(key, key, &vec![], self.node().pgid, 0);
             } else {
-                let inode = self.inodes.first().unwrap();
-                (*parent_node)
-                    .borrow_mut()
-                    .put(&inode.key, &inode.key, &vec![], self.pgid, 0);
-                self.key = Some(inode.key.clone());
+                let key = {
+                    let n1 = self.node();
+                    let inode = n1.inodes.first().unwrap();
+                    parent_node.put(&inode.key, &inode.key, &vec![], self.node().pgid, 0);
+                    inode.key.clone()
+                };
             }
-            self.children.clear();
-            return (*parent_node).borrow_mut().spill(atx.clone());
         }
 
+        // self.node_mut().key = Some(key);
+        // self.node_mut().children.clear();
+        // return parent_node.spill(atx.clone());
         Ok(())
     }
 }

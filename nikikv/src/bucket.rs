@@ -101,9 +101,7 @@ impl Bucket {
         bucket.root_node = Some(NodeImpl::new().leaf(true).build());
         let value = bucket.write();
 
-        (*c.node()?)
-            .borrow_mut()
-            .put(key, key, value.as_slice(), 0, BucketLeafFlag);
+        c.node()?.put(key, key, value.as_slice(), 0, BucketLeafFlag);
 
         self.bucket(key)
     }
@@ -127,7 +125,7 @@ impl Bucket {
         if Some(key) == item.0 && (item.2 & BucketLeafFlag) == 1 {
             return Err(NKError::IncompatibleValue);
         }
-        (*c.node()?).borrow_mut().put(key, key, value, 0, 0);
+        c.node()?.put(key, key, value, 0, 0);
         Ok(())
     }
 
@@ -165,7 +163,7 @@ impl Bucket {
     }
 
     pub(crate) fn write(&self) -> Vec<u8> {
-        let n = self.root_node.as_ref().unwrap().borrow();
+        let n = self.root_node.as_ref().unwrap();
         let size = n.size();
         let mut value = vec![0u8; BucketHeaderSize + size];
 
@@ -184,7 +182,7 @@ impl Bucket {
             return node.clone();
         }
 
-        let n = if let Some(p) = parent {
+        let mut n = if let Some(p) = parent {
             let parent_node = p.upgrade().unwrap();
             let n = NodeImpl::new().parent(p.clone()).build();
             (*parent_node).borrow_mut().children.push(n.clone());
@@ -197,7 +195,7 @@ impl Bucket {
 
         if self.page.is_none() {
             let p = self.tx().unwrap().db().page(pgid);
-            (*n).borrow_mut().read(unsafe { &*p });
+            n.read(unsafe { &*p });
         }
         self.nodes.insert(pgid, n.clone());
         n
@@ -210,10 +208,10 @@ impl Bucket {
             // b.in
         }
 
-        let root = self.root_node.as_ref().unwrap().clone();
-        (*root).borrow_mut().spill(atx)?;
-        let root_node = (*root).borrow().root(root.clone());
-        self.ibucket.root = root_node.borrow().pgid;
+        let mut root = self.root_node.as_ref().unwrap().clone();
+        root.spill(atx)?;
+        let root_node = root.root(root.clone());
+        self.ibucket.root = root_node.node().pgid;
         self.root_node = Some(root_node);
         Ok(())
     }

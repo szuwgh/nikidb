@@ -50,14 +50,14 @@ impl<'a> Item<'a> {
 impl ElemRef {
     fn is_leaf(&self) -> bool {
         match &self.page_node {
-            PageNode::Node(n) => (**n).borrow().is_leaf,
+            PageNode::Node(n) => n.node().is_leaf,
             PageNode::Page(p) => self.get_page(p).flags == LeafPageFlag,
         }
     }
 
     fn count(&self) -> usize {
         match &self.page_node {
-            PageNode::Node(n) => (**n).borrow().inodes.len(),
+            PageNode::Node(n) => n.node().inodes.len(),
             PageNode::Page(p) => self.get_page(p).count as usize,
         }
     }
@@ -97,8 +97,7 @@ impl<'a> Cursor<'a> {
             }
             let pgid = match &ref_elem.page_node {
                 PageNode::Node(n) => {
-                    (**n)
-                        .borrow()
+                    n.node()
                         .inodes
                         .get(ref_elem.index)
                         .ok_or("get node fail")?
@@ -182,8 +181,8 @@ impl<'a> Cursor<'a> {
         unsafe {
             match &ref_elem.page_node {
                 PageNode::Node(n) => {
-                    let n = (**n).borrow();
-                    let inode = n.inodes.get(ref_elem.index).unwrap();
+                    let n1 = n.node();
+                    let inode = n1.inodes.get(ref_elem.index).unwrap();
                     Ok(Item::from(
                         &*(inode.key.as_slice() as *const [u8]),
                         &*(inode.value.as_slice() as *const [u8]),
@@ -228,8 +227,8 @@ impl<'a> Cursor<'a> {
         let e = self.stack.last_mut().ok_or("stack empty")?;
         match &e.page_node {
             PageNode::Node(n) => {
-                let index = match (**n)
-                    .borrow()
+                let index = match n
+                    .node()
                     .inodes
                     .binary_search_by(|inode| inode.key.as_slice().cmp(key))
                 {
@@ -280,9 +279,7 @@ impl<'a> Cursor<'a> {
         };
 
         for e in self.stack[..self.stack.len() - 1].iter() {
-            let child = (*n)
-                .borrow_mut()
-                .child_at(self.bucket, e.index, Some(Rc::downgrade(&n)));
+            let child = n.child_at(self.bucket, e.index, Some(Rc::downgrade(&n.0)));
             n = child;
         }
 

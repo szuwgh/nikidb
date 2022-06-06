@@ -153,8 +153,6 @@ impl FreeList {
         }
         dst[..self.ids.len()].copy_from_slice(self.ids.as_slice())
     }
-
-    fn merge_pgids(dst: &mut [Pgid], a: &[Pgid], b: &[Pgid]) {}
 }
 
 #[cfg(test)]
