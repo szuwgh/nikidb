@@ -1,7 +1,7 @@
 use crate::bucket::{Bucket, IBucket};
 use crate::page::{
     BranchPageElementSize, BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageElementSize,
-    LeafPageFlag, MetaPageFlag, Page, Pgid,
+    LeafPageFlag, MetaPageFlag, Page, Pgid, MIN_KEY_PERPAGE,
 };
 use crate::tx::{Tx, TxImpl};
 use crate::{error::NKError, error::NKResult};
@@ -231,17 +231,34 @@ impl Node {
         }
     }
 
+    //删除元素 重平衡
     fn rebalance(&mut self) {}
 
-    fn split(&mut self, page_size: u32) -> Vec<Node> {
+    //添加元素 分裂
+    fn split(&mut self, page_size: u32, fill_percent: f64) -> Vec<Node> {
         let nodes: Vec<Node> = Vec::new();
+
         nodes
     }
 
-    fn split_two(&mut self) {}
+    fn split_two(&mut self, page_size: u32, fill_percent: f64) {
+        //-> (Node, Node)
+        if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 {}
+    }
+
+    fn node_less_than(&mut self) {
+        let mut sz = Page::header_size();
+        let elsz = self.page_element_size();
+        let a = self.node();
+        for i in 0..a.inodes.len() {
+            let item = a.inodes.get(i).unwrap();
+            sz += elsz + item.key.len() + item.value.len();
+        }
+        sz
+    }
 
     //node spill
-    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
+    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>, bucket: &Bucket) -> NKResult<()> {
         if self.node().spilled {
             return Ok(());
         }
@@ -250,14 +267,14 @@ impl Node {
             .children
             .sort_by(|a, b| (*a).node().inodes[0].key.cmp(&(*b).node().inodes[0].key));
         for mut child in self.node_mut().children.clone() {
-            child.spill(atx.clone())?;
+            child.spill(atx.clone(), bucket)?;
         }
 
         self.node_mut().children.clear();
         let tx = atx.clone();
         let db = tx.db();
 
-        let nodes = self.split(db.get_page_size());
+        let nodes = self.split(db.get_page_size(), bucket.fill_percent);
 
         if self.node().pgid > 0 {
             db.freelist

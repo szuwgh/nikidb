@@ -17,6 +17,11 @@ const MAX_KEY_SIZE: usize = 32768;
 
 const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
 
+const MIN_FILL_PERCENT: f64 = 0.1;
+const MAX_FILL_PERCENT: f64 = 1.0;
+
+const DEFAULT_FILL_PERCENT: f64 = 1.0;
+
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
     nodes: HashMap<Pgid, Node>,
@@ -24,6 +29,8 @@ pub(crate) struct Bucket {
     root_node: Option<Node>,
     page: Option<OwnerPage>, // inline page
     buckets: HashMap<Vec<u8>, Bucket>,
+
+    pub(crate) fill_percent: f64,
 }
 
 #[derive(Clone)]
@@ -50,6 +57,7 @@ impl Bucket {
             root_node: None, // Some(NodeImpl::new().leaf(true).build()),
             page: None,
             buckets: HashMap::new(),
+            fill_percent: DEFAULT_FILL_PERCENT,
         }
     }
 
@@ -209,7 +217,7 @@ impl Bucket {
         }
 
         let mut root = self.root_node.as_ref().unwrap().clone();
-        root.spill(atx)?;
+        root.spill(atx, &self)?;
         let root_node = root.root(root.clone());
         self.ibucket.root = root_node.node().pgid;
         self.root_node = Some(root_node);

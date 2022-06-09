@@ -26,6 +26,7 @@ pub(crate) const FreeListPageFlag: u16 = 0x10;
 
 pub(crate) const BucketLeafFlag: u32 = 0x01;
 
+pub(crate) const MIN_KEY_PERPAGE: usize = 2;
 #[repr(C)]
 //页数据
 pub(crate) struct Page {
