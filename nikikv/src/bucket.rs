@@ -17,10 +17,11 @@ const MAX_KEY_SIZE: usize = 32768;
 
 const MAX_VALUE_SIZE: usize = (1 << 31) - 2;
 
-const MIN_FILL_PERCENT: f64 = 0.1;
-const MAX_FILL_PERCENT: f64 = 1.0;
+pub(crate) const MIN_FILL_PERCENT: f64 = 0.1;
 
-const DEFAULT_FILL_PERCENT: f64 = 1.0;
+pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
+
+const DEFAULT_FILL_PERCENT: f64 = 0.5;
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,

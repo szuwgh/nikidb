@@ -1,4 +1,4 @@
-use crate::bucket::{Bucket, IBucket};
+use crate::bucket::{Bucket, IBucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
 use crate::page::{
     BranchPageElementSize, BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageElementSize,
     LeafPageFlag, MetaPageFlag, Page, Pgid, MIN_KEY_PERPAGE,
@@ -6,7 +6,6 @@ use crate::page::{
 use crate::tx::{Tx, TxImpl};
 use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
-use fnv::FnvHasher;
 use memoffset::offset_of;
 use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};
@@ -237,24 +236,53 @@ impl Node {
     //添加元素 分裂
     fn split(&mut self, page_size: u32, fill_percent: f64) -> Vec<Node> {
         let nodes: Vec<Node> = Vec::new();
-
+        //  if fill_percent < MIN_
         nodes
     }
 
-    fn split_two(&mut self, page_size: u32, fill_percent: f64) {
-        //-> (Node, Node)
-        if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 {}
+    fn split_index(&self, threshold: usize) -> (usize, usize) {
+        let mut index: usize = 0;
+        let mut sz: usize = 0;
+        let n = self.node();
+        let max = n.inodes.len() - MIN_KEY_PERPAGE;
+        let nodes = &n.inodes;
+        for (i, node) in nodes.iter().enumerate().take(max) {
+            index = i;
+            let elsize = self.page_element_size() + node.key.len() + node.value.len();
+            if i>
+        }
+        (0, 0)
     }
 
-    fn node_less_than(&mut self) {
+    fn split_two(
+        &mut self,
+        page_size: usize,
+        mut fill_percent: f64,
+    ) -> (Option<Node>, Option<Node>) {
+        //-> (Node, Node)
+        if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 || self.node_less_than(page_size) {
+            return (Some(self.clone()), None);
+        }
+        if fill_percent < MIN_FILL_PERCENT {
+            fill_percent = MIN_FILL_PERCENT;
+        } else if fill_percent > MAX_FILL_PERCENT {
+            fill_percent = MAX_FILL_PERCENT;
+        }
+        (None, None)
+    }
+
+    fn node_less_than(&self, v: usize) -> bool {
         let mut sz = Page::header_size();
         let elsz = self.page_element_size();
         let a = self.node();
         for i in 0..a.inodes.len() {
             let item = a.inodes.get(i).unwrap();
             sz += elsz + item.key.len() + item.value.len();
+            if sz >= v {
+                return false;
+            }
         }
-        sz
+        return true;
     }
 
     //node spill
