@@ -6,6 +6,7 @@ use crate::page::{
 use crate::tx::{Tx, TxImpl};
 use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
+
 use memoffset::offset_of;
 use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};
@@ -17,6 +18,7 @@ use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::rc::Weak;
 use std::sync::{Arc, Weak as ArcWeak};
+use std::vec;
 
 #[derive(Clone)]
 pub(crate) struct Node(pub(crate) Rc<RefCell<NodeImpl>>);
@@ -234,9 +236,13 @@ impl Node {
     fn rebalance(&mut self) {}
 
     //添加元素 分裂
-    fn split(&mut self, page_size: u32, fill_percent: f64) -> Vec<Node> {
-        let nodes: Vec<Node> = Vec::new();
-        //  if fill_percent < MIN_
+    fn split(&mut self, page_size: usize, fill_percent: f64) -> Vec<Node> {
+        let mut nodes = vec![self.clone()];
+        let mut node = self.clone();
+        while let Some(b) = node.split_two(page_size, fill_percent) {
+            nodes.push(b.clone());
+            node = b;
+        }
         nodes
     }
 
@@ -249,26 +255,29 @@ impl Node {
         for (i, node) in nodes.iter().enumerate().take(max) {
             index = i;
             let elsize = self.page_element_size() + node.key.len() + node.value.len();
-            if i>
+            if i > MIN_KEY_PERPAGE && sz + elsize > threshold {
+                break;
+            }
+            sz += elsize;
         }
-        (0, 0)
+        (index, sz)
     }
 
-    fn split_two(
-        &mut self,
-        page_size: usize,
-        mut fill_percent: f64,
-    ) -> (Option<Node>, Option<Node>) {
-        //-> (Node, Node)
+    fn split_two(&mut self, page_size: usize, mut fill_percent: f64) -> Option<Node> {
         if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 || self.node_less_than(page_size) {
-            return (Some(self.clone()), None);
+            return None;
         }
         if fill_percent < MIN_FILL_PERCENT {
             fill_percent = MIN_FILL_PERCENT;
         } else if fill_percent > MAX_FILL_PERCENT {
             fill_percent = MAX_FILL_PERCENT;
         }
-        (None, None)
+        let threshold = (page_size as f64 * fill_percent) as usize;
+        let (split_index, _) = self.split_index(threshold);
+
+        let mut next = NodeImpl::new().leaf(self.node().is_leaf).build();
+        next.node_mut().inodes = self.node_mut().inodes.drain(split_index..).collect();
+        Some(next)
     }
 
     fn node_less_than(&self, v: usize) -> bool {
@@ -285,10 +294,10 @@ impl Node {
         return true;
     }
 
-    //node spill
-    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>, bucket: &Bucket) -> NKResult<()> {
+    //node spill return parent
+    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>, bucket: &Bucket) -> NKResult<Node> {
         if self.node().spilled {
-            return Ok(());
+            return Ok(self.clone());
         }
 
         self.node_mut()
@@ -302,50 +311,71 @@ impl Node {
         let tx = atx.clone();
         let db = tx.db();
 
-        let nodes = self.split(db.get_page_size(), bucket.fill_percent);
+        let mut nodes = self.split(db.get_page_size() as usize, bucket.fill_percent);
+        // 这里设置父节点信息
 
-        if self.node().pgid > 0 {
-            db.freelist
-                .try_write()
-                .unwrap()
-                .free(tx.meta.borrow().txid, unsafe {
-                    &*db.page(self.node().pgid)
-                });
-            self.node_mut().pgid = 0;
-        }
-
-        let mut p = db.allocate(self.size() / db.get_page_size() as usize + 1)?;
-        let page = p.to_page_mut();
-        if page.id >= tx.meta.borrow().pgid {
-            panic!(
-                "pgid {} above high water mark{}",
-                page.id,
-                tx.meta.borrow().pgid
-            );
-        }
-        self.node_mut().pgid = page.id;
-        self.write(page);
-        tx.pages.borrow_mut().insert(self.node().pgid, p);
-        self.node_mut().spilled = true;
-
-        if let Some(parent) = &self.node().parent {
-            let mut parent_node = parent.upgrade().map(Node).unwrap();
-            if let Some(key) = &self.node().key {
-                parent_node.put(key, key, &vec![], self.node().pgid, 0);
+        let parent_node = if nodes.len() == 1 {
+            (None)
+        } else {
+            if let Some(parent) = &self.node().parent {
+                let mut p = parent.upgrade().map(Node).unwrap();
+                for n in nodes.iter_mut() {
+                    n.node_mut().parent = Some(parent.clone());
+                }
+                p.node_mut().children.extend_from_slice(&nodes[1..]);
+                Some(p)
             } else {
-                let key = {
-                    let n1 = self.node();
-                    let inode = n1.inodes.first().unwrap();
-                    parent_node.put(&inode.key, &inode.key, &vec![], self.node().pgid, 0);
-                    inode.key.clone()
-                };
+                let mut parent = NodeImpl::new().leaf(false).build();
+                parent
+                    .node_mut()
+                    .children
+                    .extend_from_slice(nodes.as_slice());
+                Some(parent)
+            }
+        };
+        for n in nodes.iter_mut() {
+            if n.node().pgid > 0 {
+                db.freelist
+                    .try_write()
+                    .unwrap()
+                    .free(tx.meta.borrow().txid, unsafe { &*db.page(n.node().pgid) });
+                n.node_mut().pgid = 0;
+            }
+
+            let mut p = db.allocate(n.size() / db.get_page_size() as usize + 1)?;
+            let page = p.to_page_mut();
+            if page.id >= tx.meta.borrow().pgid {
+                panic!(
+                    "pgid {} above high water mark{}",
+                    page.id,
+                    tx.meta.borrow().pgid
+                );
+            }
+            n.node_mut().pgid = page.id;
+            n.write(page);
+            tx.pages.borrow_mut().insert(n.node().pgid, p);
+            n.node_mut().spilled = true;
+
+            if let Some(parent) = &n.node().parent {
+                let mut parent_node = parent.upgrade().map(Node).unwrap();
+                if let Some(key) = &n.node().key {
+                    parent_node.put(key, key, &vec![], n.node().pgid, 0);
+                } else {
+                    let key = {
+                        let n1 = n.node();
+                        let inode = n1.inodes.first().unwrap();
+                        parent_node.put(&inode.key, &inode.key, &vec![], n.node().pgid, 0);
+                        inode.key.clone()
+                    };
+                }
             }
         }
 
-        // self.node_mut().key = Some(key);
-        // self.node_mut().children.clear();
-        // return parent_node.spill(atx.clone());
-        Ok(())
+        if let Some(mut p) = parent_node {
+            p.node_mut().children.clear();
+            return p.spill(atx, bucket);
+        }
+        return Ok(self.clone());
     }
 }
 

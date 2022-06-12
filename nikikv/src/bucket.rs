@@ -218,8 +218,8 @@ impl Bucket {
         }
 
         let mut root = self.root_node.as_ref().unwrap().clone();
-        root.spill(atx, &self)?;
-        let root_node = root.root(root.clone());
+        let root_node = root.spill(atx, &self)?;
+        //   let root_node = root.root(root.clone());
         self.ibucket.root = root_node.node().pgid;
         self.root_node = Some(root_node);
         Ok(())
