@@ -67,10 +67,11 @@ impl NodeImpl {
 }
 
 impl Node {
+    #[inline]
     pub(crate) fn node_mut(&mut self) -> RefMut<'_, NodeImpl> {
         (*(self.0)).borrow_mut()
     }
-
+    #[inline]
     pub(crate) fn node(&self) -> Ref<'_, NodeImpl> {
         self.0.borrow()
     }
@@ -114,13 +115,14 @@ impl Node {
     }
 
     pub(crate) fn read(&mut self, p: &Page) {
-        self.node_mut().pgid = p.id;
-        self.node_mut().is_leaf = (p.flags & LeafPageFlag) != 0;
+        let mut node_mut = self.node_mut();
+        node_mut.pgid = p.id;
+        node_mut.is_leaf = (p.flags & LeafPageFlag) != 0;
         let count = p.count as usize;
-        self.node_mut().inodes = Vec::with_capacity(count);
+        node_mut.inodes = Vec::with_capacity(count);
         for i in 0..count {
             let mut inode = INode::new();
-            if self.node().is_leaf {
+            if node_mut.is_leaf {
                 let elem = p.leaf_page_element(i);
                 inode.flags = elem.flags;
                 inode.key = elem.key().to_vec();
@@ -133,11 +135,11 @@ impl Node {
             assert!(inode.key.len() > 0, "read: zero-length inode key");
         }
 
-        if self.node().inodes.len() > 0 {
-            let key = { self.node().inodes.first().unwrap().key.clone() };
-            self.node_mut().key = Some(key);
+        if node_mut.inodes.len() > 0 {
+            let key = { node_mut.inodes.first().unwrap().key.clone() };
+            node_mut.key = Some(key);
         } else {
-            self.node_mut().key = None
+            node_mut.key = None
         }
     }
 
@@ -258,27 +260,71 @@ impl Node {
         }
     }
 
-    fn next_sibling(&mut self) -> Option<Node> {
-        if self.node().parent.is_none() {
-            None
-        } else {
-            None
+    fn child_index(&self, key: &[u8]) -> (bool, usize) {
+        match self
+            .node()
+            .inodes
+            .binary_search_by(|inode| inode.key.as_slice().cmp(key))
+        {
+            Ok(v) => (true, v),
+            Err(e) => (false, e),
         }
     }
 
-    fn prev_sibling(&mut self) -> Option<Node> {
-        None
+    fn parent(&self) -> Option<Node> {
+        match &self.node().parent {
+            None => None,
+            Some(p) => p.upgrade().map(Node),
+        }
+    }
+
+    fn next_sibling(&self, bucket: &mut Bucket) -> Option<Node> {
+        match self.parent() {
+            None => None,
+            Some(mut p) => {
+                let (_, index) = self.child_index(self.node().key.as_ref().unwrap());
+                if index > self.node().children.len() - 1 {
+                    return None;
+                }
+                Some(p.child_at(bucket, index + 1, Some(Rc::downgrade(&p.0))))
+            }
+        }
+    }
+
+    fn prev_sibling(&mut self, bucket: &mut Bucket) -> Option<Node> {
+        match self.parent() {
+            None => None,
+            Some(mut p) => {
+                let (_, index) = self.child_index(self.node().key.as_ref().unwrap());
+                if index == 0 {
+                    return None;
+                }
+                Some(p.child_at(bucket, index - 1, Some(Rc::downgrade(&p.0))))
+            }
+        }
     }
 
     //删除元素 重平衡
-    fn rebalance(&mut self, page_size: usize) -> NKResult<()> {
-        if !self.node().unbalanced {
+    fn rebalance(&mut self, page_size: usize, bucket: &mut Bucket) -> NKResult<()> {
+        //   let mut node = self.node_mut();
+        if !self.node_mut().unbalanced {
             return Ok(());
         }
         self.node_mut().unbalanced = false;
         let threshold = page_size / 4;
         if self.size() > threshold && self.node().inodes.len() > self.min_keys() {
             return Ok(());
+        }
+        if self.parent().is_none() {
+            if !self.node().is_leaf && self.node().inodes.len() == 1 {
+                let mut child =
+                    bucket.node(self.node().inodes[0].pgid, Some(Rc::downgrade(&self.0)));
+
+                let mut node_mut = self.node_mut();
+                node_mut.is_leaf = child.node().is_leaf;
+                node_mut.inodes = child.node_mut().inodes.drain(..).collect();
+                node_mut.children = child.node_mut().children.drain(..).collect();
+            }
         }
         Ok(())
     }
