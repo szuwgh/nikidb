@@ -87,6 +87,14 @@ impl Node {
         bucket.node(self.node().inodes[index].pgid, parent)
     }
 
+    fn min_keys(&self) -> usize {
+        if self.node().is_leaf {
+            1
+        } else {
+            2
+        }
+    }
+
     pub(crate) fn size(&self) -> usize {
         let mut sz = Page::header_size();
         let elsz = self.page_element_size();
@@ -131,6 +139,24 @@ impl Node {
         } else {
             self.node_mut().key = None
         }
+    }
+
+    pub(crate) fn del(&mut self, key: &[u8]) {
+        let (exact, index) = {
+            match self
+                .node()
+                .inodes
+                .binary_search_by(|inode| inode.key.as_slice().cmp(key))
+            {
+                Ok(v) => (true, v),
+                Err(e) => (false, e),
+            }
+        };
+        if !exact {
+            return;
+        }
+        self.node_mut().inodes.remove(index);
+        self.node_mut().unbalanced = true;
     }
 
     pub(crate) fn put(
@@ -232,8 +258,30 @@ impl Node {
         }
     }
 
+    fn next_sibling(&mut self) -> Option<Node> {
+        if self.node().parent.is_none() {
+            None
+        } else {
+            None
+        }
+    }
+
+    fn prev_sibling(&mut self) -> Option<Node> {
+        None
+    }
+
     //删除元素 重平衡
-    fn rebalance(&mut self) {}
+    fn rebalance(&mut self, page_size: usize) -> NKResult<()> {
+        if !self.node().unbalanced {
+            return Ok(());
+        }
+        self.node_mut().unbalanced = false;
+        let threshold = page_size / 4;
+        if self.size() > threshold && self.node().inodes.len() > self.min_keys() {
+            return Ok(());
+        }
+        Ok(())
+    }
 
     //添加元素 分裂
     fn split(&mut self, page_size: usize, fill_percent: f64) -> Vec<Node> {
