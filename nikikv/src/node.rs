@@ -13,7 +13,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::ops::Sub;
+use std::ops::{Index, Sub};
 use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::rc::Weak;
@@ -260,14 +260,14 @@ impl Node {
         }
     }
 
-    fn child_index(&self, key: &[u8]) -> (bool, usize) {
+    fn child_index(&self, key: &[u8]) -> usize {
         match self
             .node()
             .inodes
             .binary_search_by(|inode| inode.key.as_slice().cmp(key))
         {
-            Ok(v) => (true, v),
-            Err(e) => (false, e),
+            Ok(v) => v,
+            Err(e) => e,
         }
     }
 
@@ -282,7 +282,7 @@ impl Node {
         match self.parent() {
             None => None,
             Some(mut p) => {
-                let (_, index) = self.child_index(self.node().key.as_ref().unwrap());
+                let index = self.child_index(self.node().key.as_ref().unwrap());
                 if index > self.node().children.len() - 1 {
                     return None;
                 }
@@ -295,12 +295,41 @@ impl Node {
         match self.parent() {
             None => None,
             Some(mut p) => {
-                let (_, index) = self.child_index(self.node().key.as_ref().unwrap());
+                let index = self.child_index(self.node().key.as_ref().unwrap());
                 if index == 0 {
                     return None;
                 }
                 Some(p.child_at(bucket, index - 1, Some(Rc::downgrade(&p.0))))
             }
+        }
+    }
+
+    fn free(&mut self, bucket: &mut Bucket) {
+        if self.node().pgid != 0 {
+            let tx = bucket.tx().unwrap();
+            let db = tx.db();
+            db.freelist
+                .try_write()
+                .unwrap()
+                .free(bucket.tx().unwrap().meta.borrow().txid, unsafe {
+                    &*db.page(self.node().pgid)
+                });
+            self.node_mut().pgid = 0;
+        }
+    }
+
+    fn num_children(&self) -> usize {
+        self.node().inodes.len()
+    }
+
+    fn remove_child(&mut self, target: Node) {
+        let index = self
+            .node()
+            .children
+            .iter()
+            .position(|c| Rc::ptr_eq(&target.0, &c.0));
+        if let Some(i) = index {
+            self.node_mut().children.remove(i);
         }
     }
 
@@ -315,8 +344,12 @@ impl Node {
         if self.size() > threshold && self.node().inodes.len() > self.min_keys() {
             return Ok(());
         }
+        //当前节点是根节点，特殊处理
         if self.parent().is_none() {
+            //当前节点是branch节点并且只有一个一个inode, 分裂当前节点
             if !self.node().is_leaf && self.node().inodes.len() == 1 {
+                // 将root节点的叶子节点上移
+                // 创建一个新的子节点，以当前节点作为root节点
                 let mut child =
                     bucket.node(self.node().inodes[0].pgid, Some(Rc::downgrade(&self.0)));
 
@@ -324,7 +357,53 @@ impl Node {
                 node_mut.is_leaf = child.node().is_leaf;
                 node_mut.inodes = child.node_mut().inodes.drain(..).collect();
                 node_mut.children = child.node_mut().children.drain(..).collect();
+                //删除老得叶子节点
+                child.node_mut().parent = None;
+                bucket.nodes.remove(&child.node().pgid);
+                child.free(bucket);
             }
+            return Ok(());
+        }
+        let mut p = self.parent().unwrap();
+        if self.num_children() == 0 {
+            if let Some(k) = &self.node().key {
+                p.del(k);
+            }
+            p.remove_child(self.clone());
+            bucket.nodes.remove(&self.node().pgid);
+            self.free(bucket);
+            p.rebalance(page_size, bucket);
+        }
+
+        let use_next_sibing = (p.child_index(self.node().key.as_ref().unwrap()) == 0);
+        let mut target = if use_next_sibing {
+            self.next_sibling(bucket).unwrap()
+        } else {
+            self.next_sibling(bucket).unwrap()
+        };
+
+        if use_next_sibing {
+            {
+                for inode in target.node().inodes.iter() {
+                    if let Some(child) = bucket.nodes.get_mut(&inode.pgid) {
+                        child.parent().unwrap().remove_child(child.clone());
+                        child.node_mut().parent = Some(Rc::downgrade(&self.0));
+                        child
+                            .parent()
+                            .unwrap()
+                            .node_mut()
+                            .children
+                            .push(child.clone());
+                    }
+                }
+            }
+            let mut p = self.parent().unwrap();
+            self.node_mut()
+                .inodes
+                .append(&mut target.node_mut().inodes.drain(..).collect::<Vec<INode>>());
+            p.del(target.node().key.as_ref().unwrap());
+            p.remove_child(target);
+            bucket.nodes.remove(target.node().pgid);
         }
         Ok(())
     }
@@ -409,7 +488,7 @@ impl Node {
         // 这里设置父节点信息
 
         let parent_node = if nodes.len() == 1 {
-            (None)
+            None
         } else {
             if let Some(parent) = &self.node().parent {
                 let mut p = parent.upgrade().map(Node).unwrap();
@@ -455,12 +534,9 @@ impl Node {
                 if let Some(key) = &n.node().key {
                     parent_node.put(key, key, &vec![], n.node().pgid, 0);
                 } else {
-                    let key = {
-                        let n1 = n.node();
-                        let inode = n1.inodes.first().unwrap();
-                        parent_node.put(&inode.key, &inode.key, &vec![], n.node().pgid, 0);
-                        inode.key.clone()
-                    };
+                    let n1 = n.node();
+                    let inode = n1.inodes.first().unwrap();
+                    parent_node.put(&inode.key, &inode.key, &vec![], n.node().pgid, 0);
                 }
             }
         }

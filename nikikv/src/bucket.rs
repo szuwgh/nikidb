@@ -25,7 +25,7 @@ const DEFAULT_FILL_PERCENT: f64 = 0.5;
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
-    nodes: HashMap<Pgid, Node>,
+    pub(crate) nodes: HashMap<Pgid, Node>,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
     root_node: Option<Node>,
     page: Option<OwnerPage>, // inline page
