@@ -372,7 +372,7 @@ impl Node {
             p.remove_child(self.clone());
             bucket.nodes.remove(&self.node().pgid);
             self.free(bucket);
-            p.rebalance(page_size, bucket);
+            p.rebalance(page_size, bucket)?;
         }
 
         let use_next_sibing = (p.child_index(self.node().key.as_ref().unwrap()) == 0);
@@ -402,10 +402,35 @@ impl Node {
                 .inodes
                 .append(&mut target.node_mut().inodes.drain(..).collect::<Vec<INode>>());
             p.del(target.node().key.as_ref().unwrap());
-            p.remove_child(target);
-            bucket.nodes.remove(target.node().pgid);
+            p.remove_child(target.clone());
+            bucket.nodes.remove(&target.node().pgid);
+            target.free(bucket);
+        } else {
+            {
+                for inode in self.node().inodes.iter() {
+                    if let Some(child) = bucket.nodes.get_mut(&inode.pgid) {
+                        child.parent().unwrap().remove_child(child.clone());
+                        child.node_mut().parent = Some(Rc::downgrade(&target.0));
+                        child
+                            .parent()
+                            .unwrap()
+                            .node_mut()
+                            .children
+                            .push(child.clone());
+                    }
+                }
+            }
+            let mut p = self.parent().unwrap();
+            target
+                .node_mut()
+                .inodes
+                .append(&mut self.node_mut().inodes.drain(..).collect::<Vec<INode>>());
+            p.del(self.node().key.as_ref().unwrap());
+            p.remove_child(self.clone());
+            bucket.nodes.remove(&self.node().pgid);
+            self.free(bucket);
         }
-        Ok(())
+        self.parent().unwrap().rebalance(page_size, bucket)
     }
 
     //添加元素 分裂
