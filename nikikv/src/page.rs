@@ -116,7 +116,7 @@ impl LeafPageElement {
 pub(crate) struct Meta {
     pub(crate) magic: u32,
     pub(crate) version: u32,
-    pub(crate) page_size: u32,
+    pub(crate) page_size: usize,
     pub(crate) flags: u32,
     pub(crate) root: IBucket,
     pub(crate) freelist: Pgid,

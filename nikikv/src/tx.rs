@@ -42,6 +42,8 @@ impl Tx {
     pub(crate) fn commit(&mut self) -> NKResult<()> {
         let tx = self.tx();
         let db = tx.db();
+      
+        tx.root.borrow_mut().rebalance(db.get_page_size() as usize);
         tx.root.borrow_mut().spill(self.0.clone())?;
         //回收旧的freelist列表
         {

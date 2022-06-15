@@ -49,10 +49,11 @@ pub(crate) struct DBImpl {
     page_pool: RwLock<Vec<Vec<u8>>>,
     pub(crate) freelist: RwLock<FreeList>,
     rwtx: RwLock<Option<Tx>>,
+    //rwlock: Met,
 }
 
 struct MmapUtil {
-    pub(crate) page_size: u32,
+    pub(crate) page_size: usize,
     mmap: Option<memmap::Mmap>,
     meta0: *const Meta,
     meta1: *const Meta,
@@ -102,12 +103,10 @@ impl MmapUtil {
         let mut mmap_opts = memmap::MmapOptions::new();
 
         let mut size = file.metadata().map_err(|e| NKError::DBOpenFail(e))?.len();
-        println!("size:{}", size);
         if size < min_size {
             size = min_size;
         }
         min_size = self.mmap_size(size)?;
-        println!("min_size:{}", min_size);
         drop(self.mmap.as_deref());
         let nmmap = unsafe {
             mmap_opts
@@ -146,11 +145,11 @@ impl MmapUtil {
     }
 
     fn page_in_buffer_mut<'a>(&mut self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
-        Page::from_buf_mut(&mut buf[(id * self.page_size) as usize..])
+        Page::from_buf_mut(&mut buf[(id as usize * self.page_size)..])
     }
 
     fn page_in_buffer<'a>(&self, buf: &'a [u8], id: u32) -> &'a Page {
-        Page::from_buf(&buf[(id * self.page_size) as usize..])
+        Page::from_buf(&buf[(id as usize * self.page_size) as usize..])
     }
 
     pub(crate) fn page(&self, id: Pgid) -> *const Page {
@@ -226,7 +225,7 @@ impl DBImpl {
 
     fn init(&mut self) -> NKResult<()> {
         let page_size = get_page_size();
-        self.mmap.try_write().unwrap().page_size = page_size as u32;
+        self.mmap.try_write().unwrap().page_size = page_size;
         let mut buf: Vec<u8> = vec![0; 4 * page_size];
         for i in 0..2 {
             let p = self
@@ -240,7 +239,7 @@ impl DBImpl {
             let m = p.meta_mut();
             m.magic = magic;
             m.version = version;
-            m.page_size = page_size as u32;
+            m.page_size = page_size;
             m.freelist = 2;
             m.root = IBucket::new(3);
             m.pgid = 4;
@@ -334,7 +333,7 @@ impl DBImpl {
         self.mmap.try_read().unwrap().page(id)
     }
 
-    pub(crate) fn get_page_size(&self) -> u32 {
+    pub(crate) fn get_page_size(&self) -> usize {
         self.mmap.try_read().unwrap().page_size
     }
 

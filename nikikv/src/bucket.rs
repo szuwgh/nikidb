@@ -1,7 +1,7 @@
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
 use crate::node::{Node, NodeImpl};
-use crate::page::{BucketLeafFlag, OwnerPage, Page, Pgid};
+use crate::page::{BucketLeafFlag, LeafPageElement, OwnerPage, Page, Pgid};
 use crate::tx::TxImpl;
 use crate::u8_to_struct_mut;
 use std::cell::{Ref, RefCell};
@@ -25,11 +25,11 @@ const DEFAULT_FILL_PERCENT: f64 = 0.5;
 
 pub(crate) struct Bucket {
     pub(crate) ibucket: IBucket,
-    pub(crate) nodes: HashMap<Pgid, Node>,
+    pub(crate) nodes: RefCell<HashMap<Pgid, Node>>,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
     root_node: Option<Node>,
     page: Option<OwnerPage>, // inline page
-    buckets: HashMap<Vec<u8>, Bucket>,
+    buckets: RefCell<HashMap<Vec<u8>, Bucket>>,
 
     pub(crate) fill_percent: f64,
 }
@@ -53,17 +53,17 @@ impl Bucket {
                 root: root,
                 sequence: 0,
             },
-            nodes: HashMap::new(),
+            nodes: RefCell::new(HashMap::new()),
             weak_tx: tx,
             root_node: None, // Some(NodeImpl::new().leaf(true).build()),
             page: None,
-            buckets: HashMap::new(),
+            buckets: RefCell::new(HashMap::new()),
             fill_percent: DEFAULT_FILL_PERCENT,
         }
     }
 
     pub(crate) fn bucket(&mut self, key: &[u8]) -> NKResult<*mut Bucket> {
-        if let Some(bucket) = self.buckets.get_mut(key) {
+        if let Some(bucket) = self.buckets.borrow_mut().get_mut(key) {
             return Ok(bucket);
         }
         let value = {
@@ -75,8 +75,8 @@ impl Bucket {
             item.1.unwrap().to_vec()
         };
         let child = self.open_bucket(value)?;
-        self.buckets.insert(key.to_vec(), child);
-        if let Some(bucket) = self.buckets.get_mut(key) {
+        self.buckets.borrow_mut().insert(key.to_vec(), child);
+        if let Some(bucket) = self.buckets.borrow_mut().get_mut(key) {
             return Ok(bucket);
         }
 
@@ -147,6 +147,10 @@ impl Bucket {
         item.1
     }
 
+    pub(crate) fn del(&mut self, key: &[u8]) -> NKResult<()> {
+        Ok(())
+    }
+
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
         // inline page
         if self.ibucket.root == 0 {
@@ -160,7 +164,7 @@ impl Bucket {
                 return Ok(PageNode::Page(p.to_page()));
             }
         }
-        if let Some(node) = self.nodes.get(&id) {
+        if let Some(node) = self.nodes.borrow().get(&id) {
             return Ok(PageNode::Node(node.clone()));
         }
         let page = self.tx().unwrap().db().page(id);
@@ -187,7 +191,7 @@ impl Bucket {
     }
 
     pub(crate) fn node(&mut self, pgid: Pgid, parent: Option<Weak<RefCell<NodeImpl>>>) -> Node {
-        if let Some(node) = self.nodes.get(&pgid) {
+        if let Some(node) = self.nodes.borrow().get(&pgid) {
             return node.clone();
         }
 
@@ -198,7 +202,7 @@ impl Bucket {
             n
         } else {
             let n = NodeImpl::new().build();
-            self.root_node = Some(n.clone());
+            self.root_node.replace(n.clone());
             n
         };
 
@@ -206,22 +210,47 @@ impl Bucket {
             let p = self.tx().unwrap().db().page(pgid);
             n.read(unsafe { &*p });
         }
-        self.nodes.insert(pgid, n.clone());
+        self.nodes.borrow_mut().insert(pgid, n.clone());
         n
     }
 
-    fn inline_able(&self) {}
+    pub(crate) fn rebalance(&mut self, page_size: usize) {
+        for n in self.nodes.borrow_mut().values_mut() {
+            n.rebalance(page_size, self);
+        }
+        for b in self.buckets.borrow_mut().values_mut() {
+            b.rebalance(page_size);
+        }
+    }
+
+    pub(crate) fn max_inline_bucket_size(&self) -> usize {
+        self.tx().unwrap().db().get_page_size() / 4
+    }
+
+    fn inline_able(&self) -> bool {
+        if let Some(n) = &self.root_node {
+            if !n.node().is_leaf {
+                return false;
+            }
+            let size = Page::header_size();
+            for inode in n.node().inodes.iter() {
+                //   size += LeafPageElementSize + inode.key.len() + inode.value.len();
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
 
     pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
-        for b in self.buckets.values() {
+        for b in self.buckets.borrow().values() {
             // b.in
         }
 
         let mut root = self.root_node.as_ref().unwrap().clone();
         let root_node = root.spill(atx, &self)?;
-        //   let root_node = root.root(root.clone());
         self.ibucket.root = root_node.node().pgid;
-        self.root_node = Some(root_node);
+        self.root_node.replace(root_node);
         Ok(())
     }
 }

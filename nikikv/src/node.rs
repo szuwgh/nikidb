@@ -304,7 +304,7 @@ impl Node {
         }
     }
 
-    fn free(&mut self, bucket: &mut Bucket) {
+    fn free(&mut self, bucket: &Bucket) {
         if self.node().pgid != 0 {
             let tx = bucket.tx().unwrap();
             let db = tx.db();
@@ -334,8 +334,8 @@ impl Node {
     }
 
     //删除元素 重平衡
-    fn rebalance(&mut self, page_size: usize, bucket: &mut Bucket) -> NKResult<()> {
-        //   let mut node = self.node_mut();
+    pub(crate) fn rebalance(&mut self, page_size: usize, b: *const Bucket) -> NKResult<()> {
+        let bucket = unsafe { &mut *(b as *mut Bucket) };
         if !self.node_mut().unbalanced {
             return Ok(());
         }
@@ -359,7 +359,7 @@ impl Node {
                 node_mut.children = child.node_mut().children.drain(..).collect();
                 //删除老得叶子节点
                 child.node_mut().parent = None;
-                bucket.nodes.remove(&child.node().pgid);
+                bucket.nodes.borrow_mut().remove(&child.node().pgid);
                 child.free(bucket);
             }
             return Ok(());
@@ -370,7 +370,7 @@ impl Node {
                 p.del(k);
             }
             p.remove_child(self.clone());
-            bucket.nodes.remove(&self.node().pgid);
+            bucket.nodes.borrow_mut().remove(&self.node().pgid);
             self.free(bucket);
             p.rebalance(page_size, bucket)?;
         }
@@ -385,7 +385,7 @@ impl Node {
         if use_next_sibing {
             {
                 for inode in target.node().inodes.iter() {
-                    if let Some(child) = bucket.nodes.get_mut(&inode.pgid) {
+                    if let Some(child) = bucket.nodes.borrow_mut().get_mut(&inode.pgid) {
                         child.parent().unwrap().remove_child(child.clone());
                         child.node_mut().parent = Some(Rc::downgrade(&self.0));
                         child
@@ -403,12 +403,12 @@ impl Node {
                 .append(&mut target.node_mut().inodes.drain(..).collect::<Vec<INode>>());
             p.del(target.node().key.as_ref().unwrap());
             p.remove_child(target.clone());
-            bucket.nodes.remove(&target.node().pgid);
+            bucket.nodes.borrow_mut().remove(&target.node().pgid);
             target.free(bucket);
         } else {
             {
                 for inode in self.node().inodes.iter() {
-                    if let Some(child) = bucket.nodes.get_mut(&inode.pgid) {
+                    if let Some(child) = bucket.nodes.borrow_mut().get_mut(&inode.pgid) {
                         child.parent().unwrap().remove_child(child.clone());
                         child.node_mut().parent = Some(Rc::downgrade(&target.0));
                         child
@@ -427,10 +427,10 @@ impl Node {
                 .append(&mut self.node_mut().inodes.drain(..).collect::<Vec<INode>>());
             p.del(self.node().key.as_ref().unwrap());
             p.remove_child(self.clone());
-            bucket.nodes.remove(&self.node().pgid);
+            bucket.nodes.borrow_mut().remove(&self.node().pgid);
             self.free(bucket);
         }
-        self.parent().unwrap().rebalance(page_size, bucket)
+        self.parent().unwrap().rebalance(page_size, b)
     }
 
     //添加元素 分裂
