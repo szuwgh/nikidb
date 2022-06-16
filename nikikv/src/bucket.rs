@@ -1,7 +1,7 @@
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
 use crate::node::{Node, NodeImpl};
-use crate::page::{BucketLeafFlag, LeafPageElement, OwnerPage, Page, Pgid};
+use crate::page::{BucketLeafFlag, LeafPageElementSize, OwnerPage, Page, Pgid};
 use crate::tx::TxImpl;
 use crate::u8_to_struct_mut;
 use std::cell::{Ref, RefCell};
@@ -151,6 +151,32 @@ impl Bucket {
         Ok(())
     }
 
+    fn free(&mut self) {
+        if self.ibucket.root == 0 {
+            return;
+        }
+        let tx = self.tx().unwrap();
+    }
+
+    fn for_each_page_node<F>(&mut self, mut f: F)
+    where
+        F: FnMut(PageNode, i32),
+    {
+        match &self.page {
+            None => self._for_each_page_node(self.ibucket.root, 0, f),
+            Some(p) => {
+                f(PageNode::Page(p.to_page()), 0);
+            }
+        }
+    }
+
+    fn _for_each_page_node<F>(&mut self, pgid: Pgid, depth: i32, f: F)
+    where
+        F: FnMut(PageNode, i32),
+    {
+        let page_node = self.page_node(pgid);
+    }
+
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
         // inline page
         if self.ibucket.root == 0 {
@@ -232,9 +258,14 @@ impl Bucket {
             if !n.node().is_leaf {
                 return false;
             }
-            let size = Page::header_size();
+            let mut size = Page::header_size();
             for inode in n.node().inodes.iter() {
-                //   size += LeafPageElementSize + inode.key.len() + inode.value.len();
+                size += LeafPageElementSize + inode.key.len() + inode.value.len();
+                if inode.flags & BucketLeafFlag != 0 {
+                    return false;
+                } else if size > self.max_inline_bucket_size() {
+                    return false;
+                }
             }
             return true;
         } else {
@@ -243,8 +274,12 @@ impl Bucket {
     }
 
     pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
-        for b in self.buckets.borrow().values() {
+        for (name, child) in self.buckets.borrow().iter() {
             // b.in
+            let value=if child.inline_able() {
+                child.free();
+                child.write()
+            }
         }
 
         let mut root = self.root_node.as_ref().unwrap().clone();
