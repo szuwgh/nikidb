@@ -1,23 +1,15 @@
-use crate::bucket::{Bucket, IBucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::bucket::{Bucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::error::NKResult;
 use crate::page::{
-    BranchPageElementSize, BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageElementSize,
-    LeafPageFlag, MetaPageFlag, Page, Pgid, MIN_KEY_PERPAGE,
+    BranchPageElementSize, BranchPageFlag, LeafPageElementSize, LeafPageFlag, Page, Pgid,
+    MIN_KEY_PERPAGE,
 };
-use crate::tx::{Tx, TxImpl};
-use crate::{error::NKError, error::NKResult};
-use crate::{magic, version};
+use crate::tx::TxImpl;
 
-use memoffset::offset_of;
-use std::borrow::BorrowMut;
 use std::cell::{Ref, RefCell, RefMut};
-use std::hash::Hasher;
-use std::marker::PhantomData;
-use std::mem::size_of;
-use std::ops::{Index, Sub};
-use std::ptr::{null, null_mut};
 use std::rc::Rc;
 use std::rc::Weak;
-use std::sync::{Arc, Weak as ArcWeak};
+use std::sync::Arc;
 use std::vec;
 
 #[derive(Clone)]
@@ -304,7 +296,7 @@ impl Node {
         }
     }
 
-    fn free(&mut self, bucket: &Bucket) {
+    pub(crate) fn free(&mut self, bucket: &Bucket) {
         if self.node().pgid != 0 {
             let tx = bucket.tx().unwrap();
             let db = tx.db();

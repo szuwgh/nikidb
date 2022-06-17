@@ -7,13 +7,11 @@ use crate::page::{
 use crate::tx::{Tx, TxImpl, Txid};
 use crate::{magic, version};
 use page_size;
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
+
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
 use std::ptr::null;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -213,6 +211,11 @@ impl DBImpl {
         Ok(DB(Arc::new(db)))
     }
 
+    fn print(&self) {
+        // let meta = self.0.meta();
+        // let self. meta.root.root
+    }
+
     fn new(file: File) -> DBImpl {
         Self {
             file: RwLock::new(file),
@@ -247,7 +250,6 @@ impl DBImpl {
             m.checksum = m.sum64();
         }
 
-        // write an empty freelist at page 3
         let mut p = self
             .mmap
             .try_write()

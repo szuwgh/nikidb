@@ -1,6 +1,6 @@
 use crate::{
     page::{FreeListPageFlag, Page, Pgid},
-    tx::{self, Txid},
+    tx::Txid,
 };
 use std::collections::HashMap;
 use std::mem::size_of;

@@ -1,13 +1,8 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::RefCell;
-
 use crate::bucket::{Bucket, PageNode};
-use crate::error::{NKError, NKResult};
-use crate::node::{INode, Node, NodeImpl};
-use crate::page::{
-    BranchPageFlag, BucketLeafFlag, FreeListPageFlag, LeafPageFlag, MetaPageFlag, Page, Pgid,
-};
-use std::rc::{Rc, Weak};
+use crate::error::NKResult;
+use crate::node::Node;
+use crate::page::{BucketLeafFlag, LeafPageFlag, Page, Pgid};
+use std::rc::Rc;
 pub(crate) struct Cursor<'a> {
     pub(crate) bucket: &'a mut Bucket,
     stack: Vec<ElemRef>,

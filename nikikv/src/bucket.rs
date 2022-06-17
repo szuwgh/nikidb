@@ -1,14 +1,15 @@
 use crate::cursor::Cursor;
 use crate::error::{NKError, NKResult};
 use crate::node::{Node, NodeImpl};
-use crate::page::{BucketLeafFlag, LeafPageElementSize, OwnerPage, Page, Pgid};
+use crate::page::{BranchPageFlag, BucketLeafFlag, LeafPageElementSize, OwnerPage, Page, Pgid};
 use crate::tx::TxImpl;
-use crate::u8_to_struct_mut;
-use std::cell::{Ref, RefCell};
+
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::size_of;
-use std::ptr::{null, null_mut};
-use std::rc::{Rc, Weak};
+
+use std::rc::Weak;
 use std::sync::{Arc, Weak as ArcWeak};
 
 pub(crate) const BucketHeaderSize: usize = size_of::<IBucket>();
@@ -156,25 +157,59 @@ impl Bucket {
             return;
         }
         let tx = self.tx().unwrap();
+        self.for_each_page_node(|page_node, _, bucket| match page_node {
+            PageNode::Page(p) => tx
+                .db()
+                .freelist
+                .try_write()
+                .unwrap()
+                .free(tx.meta.borrow().txid, unsafe { &**p }),
+            PageNode::Node(n) => {
+                n.free(bucket);
+            }
+        });
+        self.ibucket.root = 0;
     }
 
-    fn for_each_page_node<F>(&mut self, mut f: F)
+    fn for_each_page_node<F>(&mut self, mut f: F) -> NKResult<()>
     where
-        F: FnMut(PageNode, i32),
+        F: FnMut(&mut PageNode, i32, &Bucket),
     {
         match &self.page {
-            None => self._for_each_page_node(self.ibucket.root, 0, f),
+            None => self._for_each_page_node(self.ibucket.root, 0, &mut f),
             Some(p) => {
-                f(PageNode::Page(p.to_page()), 0);
+                f(&mut PageNode::Page(p.to_page()), 0, self);
+                Ok(())
             }
         }
     }
 
-    fn _for_each_page_node<F>(&mut self, pgid: Pgid, depth: i32, f: F)
+    fn _for_each_page_node<F>(&mut self, pgid: Pgid, depth: i32, f: &mut F) -> NKResult<()>
     where
-        F: FnMut(PageNode, i32),
+        F: FnMut(&mut PageNode, i32, &Bucket),
     {
-        let page_node = self.page_node(pgid);
+        let mut page_node = self.page_node(pgid)?;
+        f(&mut page_node, depth, self);
+        match &page_node {
+            PageNode::Page(p) => {
+                let page = unsafe { &**p };
+                if page.flags & BranchPageFlag != 0 {
+                    for i in 0..page.count as usize {
+                        let elem = page.branch_page_element(i);
+                        self._for_each_page_node(elem.pgid, depth + 1, f);
+                    }
+                }
+            }
+            PageNode::Node(n) => {
+                let node = n.node();
+                if !node.is_leaf {
+                    for inode in &node.inodes {
+                        self._for_each_page_node(inode.pgid, depth + 1, f);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn page_node(&self, id: Pgid) -> NKResult<PageNode> {
@@ -274,18 +309,42 @@ impl Bucket {
     }
 
     pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
-        for (name, child) in self.buckets.borrow().iter() {
+        for (name, child) in self.buckets.borrow_mut().iter_mut() {
             // b.in
-            let value=if child.inline_able() {
+            let value = if child.inline_able() {
                 child.free();
                 child.write()
+            } else {
+                child.spill(atx.clone())?;
+                let value = vec![0u8; BucketHeaderSize];
+                let bucket = value.as_ptr() as *mut IBucket;
+                unsafe {
+                    *bucket = *&self.ibucket;
+                }
+                value
+            };
+            if child.root_node.is_none() {
+                continue;
             }
+            let mut c = child.cursor();
+            let item = c.seek(name)?;
+            if let Some(k) = item.0 {
+                if k != name {
+                    panic!("misplaced bucket header: {:?} -> {:?}", k, name);
+                }
+            }
+            if item.flags() & BucketLeafFlag == 0 {
+                panic!("unexpected bucket header flag: {}", item.flags());
+            }
+            c.node()?.put(name, name, value.as_slice(), 0, 0);
+        }
+        if let Some(n) = &self.root_node {
+            let mut root = n.clone();
+            let root_node = root.spill(atx, &self)?;
+            self.ibucket.root = root_node.node().pgid;
+            self.root_node.replace(root_node);
         }
 
-        let mut root = self.root_node.as_ref().unwrap().clone();
-        let root_node = root.spill(atx, &self)?;
-        self.ibucket.root = root_node.node().pgid;
-        self.root_node.replace(root_node);
         Ok(())
     }
 }
