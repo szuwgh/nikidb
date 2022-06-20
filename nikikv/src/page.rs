@@ -11,6 +11,8 @@ use std::mem::size_of;
 use std::ops::Sub;
 //
 
+pub(crate) const MetaSize: usize = size_of::<Meta>();
+
 pub(crate) const LeafPageElementSize: usize = size_of::<LeafPageElement>();
 
 pub(crate) const BranchPageElementSize: usize = size_of::<BranchPageElement>();
@@ -144,7 +146,6 @@ impl Meta {
         } else if self.checksum != self.sum64() {
             return Err(NKError::ErrChecksum);
         }
-        println!("meta root bucket:{}", self.root.root);
         Ok(())
     }
 
@@ -269,5 +270,10 @@ mod tests {
     fn test_page_size() {
         let size = Page::header_size();
         println!("size:{}", size);
+    }
+
+    #[test]
+    fn test_meta_len() {
+        println!("meta_size:{}", MetaSize);
     }
 }

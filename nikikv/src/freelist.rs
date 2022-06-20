@@ -1,14 +1,15 @@
 use crate::{
+    error::NKResult,
     page::{FreeListPageFlag, Page, Pgid},
     tx::Txid,
 };
-use std::collections::HashMap;
 use std::mem::size_of;
+use std::{collections::HashMap, future::pending};
 
 pub(crate) struct FreeList {
-    ids: Vec<Pgid>,
-    pending: HashMap<Txid, Vec<Pgid>>,
-    cache: HashMap<Pgid, bool>,
+    pub(crate) ids: Vec<Pgid>,
+    pub(crate) pending: HashMap<Txid, Vec<Pgid>>,
+    pub(crate) cache: HashMap<Pgid, bool>,
 }
 
 impl Default for FreeList {
@@ -40,6 +41,10 @@ impl FreeList {
 
     fn pending_count(&self) -> usize {
         self.pending.iter().map(|x| x.1.len()).sum()
+    }
+
+    pub(crate) fn rollback() -> NKResult<()> {
+        Ok(())
     }
 
     // 该接口主要用于写事务提交之前释放已占用page。
@@ -153,6 +158,27 @@ impl FreeList {
         }
         dst[..self.ids.len()].copy_from_slice(self.ids.as_slice())
     }
+
+    pub(crate) fn release(&mut self, txid: Txid) {
+        let mut m: Vec<Pgid> = Vec::new();
+        let mut remove_txid: Vec<Txid> = Vec::new();
+        for (tid, ids) in self.pending.iter() {
+            if *tid < txid {
+                m.extend_from_slice(ids);
+                remove_txid.push(*tid);
+            }
+        }
+        m.sort_unstable();
+        self.ids = merge_pgids(self.ids.as_slice(), &m);
+    }
+}
+
+pub(crate) fn merge_pgids(a: &[Pgid], b: &[Pgid]) -> Vec<Pgid> {
+    let mut dst = Vec::with_capacity(a.len() + b.len());
+    dst.extend(a);
+    dst.extend(b);
+    dst.sort_unstable();
+    dst
 }
 
 #[cfg(test)]

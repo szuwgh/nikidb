@@ -152,9 +152,9 @@ impl Bucket {
         Ok(())
     }
 
-    fn free(&mut self) {
+    fn free(&mut self) -> NKResult<()> {
         if self.ibucket.root == 0 {
-            return;
+            return Ok(());
         }
         let tx = self.tx().unwrap();
         self.for_each_page_node(|page_node, _, bucket| match page_node {
@@ -167,8 +167,9 @@ impl Bucket {
             PageNode::Node(n) => {
                 n.free(bucket);
             }
-        });
+        })?;
         self.ibucket.root = 0;
+        Ok(())
     }
 
     fn for_each_page_node<F>(&mut self, mut f: F) -> NKResult<()>
@@ -196,7 +197,7 @@ impl Bucket {
                 if page.flags & BranchPageFlag != 0 {
                     for i in 0..page.count as usize {
                         let elem = page.branch_page_element(i);
-                        self._for_each_page_node(elem.pgid, depth + 1, f);
+                        self._for_each_page_node(elem.pgid, depth + 1, f)?;
                     }
                 }
             }
@@ -204,7 +205,7 @@ impl Bucket {
                 let node = n.node();
                 if !node.is_leaf {
                     for inode in &node.inodes {
-                        self._for_each_page_node(inode.pgid, depth + 1, f);
+                        self._for_each_page_node(inode.pgid, depth + 1, f)?;
                     }
                 }
             }
@@ -312,6 +313,7 @@ impl Bucket {
         for (name, child) in self.buckets.borrow_mut().iter_mut() {
             // b.in
             let value = if child.inline_able() {
+                println!("bucket is inline_able");
                 child.free();
                 child.write()
             } else {

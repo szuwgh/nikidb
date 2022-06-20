@@ -1,12 +1,12 @@
 use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
 use crate::freelist::FreeList;
+use crate::node::NodeImpl;
 use crate::page::{
     self, FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, OwnerPage, Page, Pgid,
 };
 use crate::tx::{Tx, TxImpl, Txid};
 use crate::{magic, version};
-use page_size;
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -20,7 +20,8 @@ const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
 const MAX_MMAP_STEP: u64 = 1 << 30;
 
 fn get_page_size() -> usize {
-    page_size::get()
+    // page_size::get()
+    return 512;
 }
 
 #[derive(Clone)]
@@ -28,16 +29,27 @@ pub struct DB(Arc<DBImpl>);
 
 impl DB {
     fn begin_rwtx(&mut self) -> Tx {
-        let mut tx = Tx(Arc::new(TxImpl::build(self.0.clone())));
+        let mut tx = Tx(Arc::new(TxImpl::build(true, self.0.clone())));
         tx.init();
         *(self.0.rwtx.try_write().unwrap()) = Some(tx.clone());
+        let txs = self.0.txs.read().unwrap();
+        let minid = txs
+            .iter()
+            .map(|tx| tx.id())
+            .min()
+            .unwrap_or(0xFFFF_FFFF_FFFF_FFFF);
         tx
     }
 
     fn begin_tx(&mut self) -> Tx {
-        let mut tx = Tx(Arc::new(TxImpl::build(self.0.clone())));
+        let mut tx = Tx(Arc::new(TxImpl::build(false, self.0.clone())));
         tx.init();
+        self.0.txs.try_write().unwrap().push(tx.clone());
         tx
+    }
+
+    fn print(&self) {
+        self.0.print();
     }
 }
 
@@ -47,6 +59,7 @@ pub(crate) struct DBImpl {
     page_pool: RwLock<Vec<Vec<u8>>>,
     pub(crate) freelist: RwLock<FreeList>,
     rwtx: RwLock<Option<Tx>>,
+    txs: RwLock<Vec<Tx>>,
     //rwlock: Met,
 }
 
@@ -212,8 +225,20 @@ impl DBImpl {
     }
 
     fn print(&self) {
-        // let meta = self.0.meta();
-        // let self. meta.root.root
+        let meta = self.meta();
+        let root = meta.root.root;
+        let p = unsafe { &*self.page(root) };
+        println!("id:{},flag:{},count:{}", p.id, p.flags, p.count);
+        println!("root:{}", root);
+        let mut node = NodeImpl::new().build();
+        node.read(p);
+        node.print();
+
+        println!("freelist ids:{:?}", self.freelist.try_read().unwrap().ids);
+        println!(
+            "freelist pending:{:?}",
+            self.freelist.try_read().unwrap().pending
+        );
     }
 
     fn new(file: File) -> DBImpl {
@@ -223,6 +248,7 @@ impl DBImpl {
             page_pool: RwLock::new(Vec::new()),
             freelist: RwLock::new(FreeList::default()),
             rwtx: RwLock::new(None),
+            txs: RwLock::new(Vec::new()),
         }
     }
 
@@ -346,17 +372,18 @@ impl DBImpl {
     pub(crate) fn page_in_buffer_mut<'a>(&self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
         self.mmap.try_write().unwrap().page_in_buffer_mut(buf, id)
     }
+
+    pub(crate) fn remove_tx(&self, tx: Tx) {
+        let mut txs = self.txs.try_write().unwrap();
+        let index = txs.iter().position(|t| Arc::ptr_eq(&tx.0, &t.0)).unwrap();
+        txs.remove(index);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::thread;
-
-    #[test]
-    fn test_db_open() {
-        //
-    }
 
     #[test]
     fn test_db_mmap() {
@@ -374,8 +401,6 @@ mod tests {
         db.0.write_at(&buf, 0).unwrap();
         db.0.sync().unwrap();
         tx = unsafe { (&*(db.0.mmap.try_read().unwrap().meta0)).txid };
-        println!("txid:{}", tx);
-        //  (*db.0).try_write().unwrap().set_mmap(32769);
     }
 
     #[test]
@@ -388,12 +413,26 @@ mod tests {
             tx1.commit();
         });
         handle.join().unwrap();
-        let mut db2 = db.clone();
-        let handle1 = thread::spawn(move || {
-            let mut tx1 = db2.begin_rwtx();
-            tx1.create_bucket("bbb".as_bytes()).unwrap();
-            tx1.commit();
-        });
-        handle1.join().unwrap();
+        db.print();
+        // let mut db2 = db.clone();
+        // let handle1 = thread::spawn(move || {
+        //     let mut tx1 = db2.begin_rwtx();
+        //     tx1.create_bucket("bbb".as_bytes()).unwrap();
+        //     tx1.commit();
+        // });
+        // handle1.join().unwrap();
+    }
+
+    #[test]
+    fn test_db_print() {
+        let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        db.print();
+        // let mut db2 = db.clone();
+        // let handle1 = thread::spawn(move || {
+        //     let mut tx1 = db2.begin_rwtx();
+        //     tx1.create_bucket("bbb".as_bytes()).unwrap();
+        //     tx1.commit();
+        // });
+        // handle1.join().unwrap();
     }
 }

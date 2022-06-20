@@ -106,6 +106,13 @@ impl Node {
         BranchPageElementSize
     }
 
+    pub(crate) fn print(&self) {
+        for n in self.node().inodes.iter() {
+            print!("{},{:?},{:?} || ", n.flags, n.key, n.value);
+        }
+        println!("");
+    }
+
     pub(crate) fn read(&mut self, p: &Page) {
         let mut node_mut = self.node_mut();
         node_mut.pgid = p.id;
@@ -125,6 +132,7 @@ impl Node {
                 inode.key = elem.key().to_vec();
             }
             assert!(inode.key.len() > 0, "read: zero-length inode key");
+            node_mut.inodes.push(inode);
         }
 
         if node_mut.inodes.len() > 0 {
@@ -375,20 +383,19 @@ impl Node {
         };
 
         if use_next_sibing {
-            {
-                for inode in target.node().inodes.iter() {
-                    if let Some(child) = bucket.nodes.borrow_mut().get_mut(&inode.pgid) {
-                        child.parent().unwrap().remove_child(child.clone());
-                        child.node_mut().parent = Some(Rc::downgrade(&self.0));
-                        child
-                            .parent()
-                            .unwrap()
-                            .node_mut()
-                            .children
-                            .push(child.clone());
-                    }
+            for inode in target.node().inodes.iter() {
+                if let Some(child) = bucket.nodes.borrow_mut().get_mut(&inode.pgid) {
+                    child.parent().unwrap().remove_child(child.clone());
+                    child.node_mut().parent = Some(Rc::downgrade(&self.0));
+                    child
+                        .parent()
+                        .unwrap()
+                        .node_mut()
+                        .children
+                        .push(child.clone());
                 }
             }
+
             let mut p = self.parent().unwrap();
             self.node_mut()
                 .inodes
@@ -503,7 +510,6 @@ impl Node {
 
         let mut nodes = self.split(db.get_page_size() as usize, bucket.fill_percent);
         // 这里设置父节点信息
-
         let parent_node = if nodes.len() == 1 {
             None
         } else {

@@ -23,8 +23,10 @@ impl Tx {
 
     pub(crate) fn init(&mut self) {
         let r = self.0.clone();
-        r.meta.borrow_mut().txid += 1;
         r.root.borrow_mut().weak_tx = Arc::downgrade(&self.0);
+        if r.writable {
+            r.meta.borrow_mut().txid += 1;
+        }
     }
 
     pub(crate) fn create_bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
@@ -33,6 +35,18 @@ impl Tx {
             .borrow_mut()
             .create_bucket(name)
             .map(|m| unsafe { &mut *m })
+    }
+
+    pub(crate) fn bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
+        self.0
+            .root
+            .borrow_mut()
+            .bucket(name)
+            .map(|m| unsafe { &mut *m })
+    }
+
+    pub(crate) fn id(&self) -> Txid {
+        0
     }
 
     fn tx(&self) -> Arc<TxImpl> {
@@ -72,11 +86,20 @@ impl Tx {
         //write meta
         tx.write_meta()?;
 
+        db.remove_tx(self.clone());
+
         Ok(())
+    }
+
+    pub(crate) fn close(&self) {
+        let tx = self.tx();
+        let db = tx.db();
+        db.remove_tx(self.clone());
     }
 }
 
 pub(crate) struct TxImpl {
+    pub(crate) writable: bool,
     dbImpl: Arc<DBImpl>,
     pub(crate) root: RefCell<Bucket>,
     pub(crate) meta: RefCell<Meta>,
@@ -84,8 +107,9 @@ pub(crate) struct TxImpl {
 }
 
 impl TxImpl {
-    pub(crate) fn build(db: Arc<DBImpl>) -> TxImpl {
+    pub(crate) fn build(writable: bool, db: Arc<DBImpl>) -> TxImpl {
         let tx = Self {
+            writable: false,
             dbImpl: db.clone(),
             root: RefCell::new(Bucket::new(0, Weak::new())),
             meta: RefCell::new(db.meta()),
