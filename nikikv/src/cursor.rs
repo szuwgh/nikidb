@@ -3,6 +3,7 @@ use crate::error::NKResult;
 use crate::node::Node;
 use crate::page::{BucketLeafFlag, LeafPageFlag, Page, Pgid};
 use std::rc::Rc;
+use std::str;
 pub(crate) struct Cursor<'a> {
     pub(crate) bucket: &'a mut Bucket,
     stack: Vec<ElemRef>,
@@ -162,7 +163,11 @@ impl<'a> Cursor<'a> {
 
     pub(crate) fn seek_item(&mut self, key: &[u8]) -> NKResult<Item<'a>> {
         self.stack.clear();
-        println!("seek root:{}", self.bucket.ibucket.root);
+        println!(
+            "seek root:{},{}",
+            self.bucket.ibucket.root,
+            str::from_utf8(key).unwrap()
+        );
         self.search(key, self.bucket.ibucket.root)?;
         let ref_elem = self.stack.last().ok_or("stack empty")?;
         if ref_elem.index >= ref_elem.count() {

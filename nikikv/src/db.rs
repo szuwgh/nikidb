@@ -38,6 +38,10 @@ impl DB {
             .map(|tx| tx.id())
             .min()
             .unwrap_or(0xFFFF_FFFF_FFFF_FFFF);
+        if minid > 0 {
+            self.0.freelist.try_write().unwrap().release(minid - 1);
+        }
+        drop(txs);
         tx
     }
 
@@ -132,7 +136,7 @@ impl MmapUtil {
         meta1.validate()?;
         self.meta0 = meta0;
         self.meta1 = meta1;
-        self.mmap = Some(nmmap);
+        self.mmap.replace(nmmap);
         self.db_size = min_size as u64;
         Ok(())
     }
@@ -232,7 +236,7 @@ impl DBImpl {
         println!("root:{}", root);
         let mut node = NodeImpl::new().build();
         node.read(p);
-        node.print();
+        node.print(self);
 
         println!("freelist ids:{:?}", self.freelist.try_read().unwrap().ids);
         println!(
@@ -406,21 +410,23 @@ mod tests {
     #[test]
     fn test_tx_create_bucket() {
         let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        let mut db1 = db.clone();
-        let handle = thread::spawn(move || {
-            let mut tx1 = db1.begin_rwtx();
-            tx1.create_bucket("888".as_bytes()).unwrap();
-            tx1.commit();
-        });
-        handle.join().unwrap();
+        // let mut db1 = db.clone();
+        //  let handle = thread::spawn(move || {
+        let mut tx1 = db.begin_rwtx();
+        tx1.create_bucket("888".as_bytes()).unwrap();
+        tx1.commit();
+        // });
+        // handle.join().unwrap();
         db.print();
         // let mut db2 = db.clone();
-        // let handle1 = thread::spawn(move || {
-        //     let mut tx1 = db2.begin_rwtx();
-        //     tx1.create_bucket("bbb".as_bytes()).unwrap();
-        //     tx1.commit();
-        // });
+        //  let handle1 = thread::spawn(move || {
+        let mut tx2 = db.begin_rwtx();
+        let b = tx2.bucket("888".as_bytes()).unwrap();
+        b.put(b"0001", b"aaa");
+        tx2.commit();
+        //   });
         // handle1.join().unwrap();
+        db.print();
     }
 
     #[test]

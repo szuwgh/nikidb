@@ -310,6 +310,7 @@ impl Bucket {
     }
 
     pub(crate) fn spill(&mut self, atx: Arc<TxImpl>) -> NKResult<()> {
+        let root_bucket = unsafe { &mut *(self as *mut Self) };
         for (name, child) in self.buckets.borrow_mut().iter_mut() {
             // b.in
             let value = if child.inline_able() {
@@ -317,18 +318,19 @@ impl Bucket {
                 child.free();
                 child.write()
             } else {
+                println!("bucket is no inline_able, to spill");
                 child.spill(atx.clone())?;
                 let value = vec![0u8; BucketHeaderSize];
                 let bucket = value.as_ptr() as *mut IBucket;
                 unsafe {
-                    *bucket = *&self.ibucket;
+                    *bucket = *&child.ibucket;
                 }
                 value
             };
             if child.root_node.is_none() {
                 continue;
             }
-            let mut c = child.cursor();
+            let mut c = root_bucket.cursor();
             let item = c.seek(name)?;
             if let Some(k) = item.0 {
                 if k != name {
@@ -338,7 +340,8 @@ impl Bucket {
             if item.flags() & BucketLeafFlag == 0 {
                 panic!("unexpected bucket header flag: {}", item.flags());
             }
-            c.node()?.put(name, name, value.as_slice(), 0, 0);
+            c.node()?
+                .put(name, name, value.as_slice(), 0, BucketLeafFlag);
         }
         if let Some(n) = &self.root_node {
             let mut root = n.clone();
@@ -354,7 +357,7 @@ impl Bucket {
 #[derive(Clone, Copy)]
 pub(crate) struct IBucket {
     pub(crate) root: Pgid,
-    sequence: u64,
+    pub(crate) sequence: u64,
 }
 
 impl IBucket {

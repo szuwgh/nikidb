@@ -1,11 +1,11 @@
-use crate::bucket::{Bucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::bucket::{Bucket, IBucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
+use crate::db::DBImpl;
 use crate::error::NKResult;
 use crate::page::{
     BranchPageElementSize, BranchPageFlag, LeafPageElementSize, LeafPageFlag, Page, Pgid,
     MIN_KEY_PERPAGE,
 };
 use crate::tx::TxImpl;
-
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 use std::rc::Weak;
@@ -106,9 +106,21 @@ impl Node {
         BranchPageElementSize
     }
 
-    pub(crate) fn print(&self) {
+    pub(crate) fn print(&self, db: &DBImpl) {
+        println!("node pgid:{}", self.node().pgid);
         for n in self.node().inodes.iter() {
-            print!("{},{:?},{:?} || ", n.flags, n.key, n.value);
+            print!(
+                "flags:{},key:{:?},value:{:?},pgid:{} || ",
+                n.flags, n.key, n.value, n.pgid
+            );
+            println!("");
+            if n.flags & BranchPageFlag as u32 != 0 {
+                let ibucket = crate::u8_to_struct::<IBucket>(n.value.as_slice());
+                let p = unsafe { &*db.page(ibucket.root) };
+                let mut node = NodeImpl::new().build();
+                node.read(p);
+                node.print(db);
+            }
         }
         println!("");
     }
@@ -237,7 +249,7 @@ impl Node {
             } else {
                 let elem = p.branch_page_element_mut(i);
                 elem.pos = unsafe { buf_ptr.sub(elem.as_ptr() as usize) } as u32;
-                elem.ksize = unsafe { buf_ptr.sub(elem.as_ptr() as usize) } as u32;
+                elem.ksize = item.key.len() as u32;
                 elem.pgid = item.pgid;
                 assert!(elem.pgid != p.id, "write: circular dependency occurred");
             }
@@ -464,6 +476,7 @@ impl Node {
         if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 || self.node_less_than(page_size) {
             return None;
         }
+        println!();
         if fill_percent < MIN_FILL_PERCENT {
             fill_percent = MIN_FILL_PERCENT;
         } else if fill_percent > MAX_FILL_PERCENT {
@@ -594,7 +607,5 @@ mod tests {
 
     use super::*;
     #[test]
-    fn test_node_new() {
-        let n = NodeImpl::new().build();
-    }
+    fn test_node_new() {}
 }

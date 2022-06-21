@@ -55,7 +55,7 @@ impl FreeList {
             panic!("cannot free page 0 or 1: {}", p.id);
         }
         let ids = self.pending.entry(txid).or_insert(Vec::new());
-        for id in p.id..p.id + p.overflow as Pgid {
+        for id in p.id..=p.id + p.overflow as Pgid {
             if self.cache.contains_key(&id) {
                 panic!("page {} already freed", id);
             }
@@ -72,6 +72,10 @@ impl FreeList {
         if self.ids.len() == 0 {
             return 0;
         }
+        println!(
+            "allocate freelist ids->:{:?},size:{},peeding:{:?}",
+            self.ids, n, self.pending,
+        );
         let mut initial: Pgid = 0;
         let mut previd: Pgid = 0;
         let item = self.ids.iter().enumerate().position(|(_i, _id)| {
@@ -90,7 +94,7 @@ impl FreeList {
         });
         return match item {
             Some(index) => {
-                self.ids.drain(index - n + 1..index + 1);
+                self.ids.drain(index - (n - 1)..index + 1);
                 for i in 0..n {
                     self.cache.remove(&(initial + (i as Pgid)));
                 }
@@ -168,6 +172,9 @@ impl FreeList {
                 remove_txid.push(*tid);
             }
         }
+        for txid in remove_txid {
+            self.pending.remove(&txid);
+        }
         m.sort_unstable();
         self.ids = merge_pgids(self.ids.as_slice(), &m);
     }
@@ -188,15 +195,16 @@ mod tests {
     use super::*;
     #[test]
     fn test_freelist_allocate() {
-        let ids: Vec<Pgid> = vec![
-            2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24,
-        ];
+        // let ids: Vec<Pgid> = vec![
+        //     2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24,
+        // ];
+        let ids: Vec<Pgid> = vec![2, 3];
         let mut freelist = FreeList {
             ids: ids,
             pending: HashMap::new(),
             cache: HashMap::new(),
         };
-        let pgid = freelist.allocate(5);
+        let pgid = freelist.allocate(1);
         println!("pgid:{}", pgid);
         println!("ids:{:?}", freelist.ids);
     }

@@ -73,8 +73,6 @@ impl Tx {
         let page = p.to_page_mut();
         db.freelist.try_write().unwrap().write(page);
 
-        // if tx.meta.borrow().pgid >
-
         tx.meta.borrow_mut().freelist = page.id;
         tx.pages.borrow_mut().insert(page.id, p);
 
@@ -86,15 +84,13 @@ impl Tx {
         //write meta
         tx.write_meta()?;
 
-        db.remove_tx(self.clone());
-
         Ok(())
     }
 
     pub(crate) fn close(&self) {
-        let tx = self.tx();
-        let db = tx.db();
-        db.remove_tx(self.clone());
+        if !self.0.writable {
+            self.0.db().remove_tx(self.clone());
+        }
     }
 }
 
@@ -109,7 +105,7 @@ pub(crate) struct TxImpl {
 impl TxImpl {
     pub(crate) fn build(writable: bool, db: Arc<DBImpl>) -> TxImpl {
         let tx = Self {
-            writable: false,
+            writable: writable,
             dbImpl: db.clone(),
             root: RefCell::new(Bucket::new(0, Weak::new())),
             meta: RefCell::new(db.meta()),
@@ -136,7 +132,7 @@ impl TxImpl {
             let page = p.1.to_page();
             let page_size = self.dbImpl.get_page_size();
             let offset = page.id * page_size as u64;
-            println!("offset:{}", offset);
+            //  println!("offset:{}", offset);
             self.db().write_at(&p.1.value, offset)?;
         }
         self.db().sync()?;
@@ -151,7 +147,7 @@ impl TxImpl {
             self.meta.borrow_mut().write(p);
             p.id
         };
-        println!("id:{},{}", id, page_size);
+        println!("meta id:{}, meta page size{}", id, page_size);
         self.db().write_at(&buf, id * page_size as u64)?;
 
         self.db().sync()?;
