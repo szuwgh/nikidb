@@ -391,7 +391,7 @@ impl Node {
         let mut target = if use_next_sibing {
             self.next_sibling(bucket).unwrap()
         } else {
-            self.next_sibling(bucket).unwrap()
+            self.prev_sibling(bucket).unwrap()
         };
 
         if use_next_sibing {
@@ -522,6 +522,7 @@ impl Node {
         let db = tx.db();
 
         let mut nodes = self.split(db.get_page_size() as usize, bucket.fill_percent);
+        println!("split nodes len:{}", nodes.len());
         // 这里设置父节点信息
         let parent_node = if nodes.len() == 1 {
             None
@@ -562,7 +563,7 @@ impl Node {
             }
             n.node_mut().pgid = page.id;
             n.write(page);
-            tx.pages.borrow_mut().insert(n.node().pgid, p);
+            tx.pages.borrow_mut().insert(page.id, p);
             n.node_mut().spilled = true;
 
             if let Some(parent) = &n.node().parent {
@@ -605,7 +606,25 @@ impl INode {
 mod tests {
     use std::ptr::null_mut;
 
+    use crate::db::MmapUtil;
+
     use super::*;
     #[test]
-    fn test_node_new() {}
+    fn test_node_new() {
+        let mut buf = vec![0u8; 512];
+        let mmap = MmapUtil::default();
+        let mut node1 = NodeImpl::new().leaf(true).build();
+        node1.put(b"aaa", b"aaa", b"001", 0, 0);
+        node1.put(b"bbb", b"bbb", b"002", 0, 0);
+        let page = mmap.page_in_buffer_mut(&mut buf, 0);
+        node1.write(page);
+        let mut node2 = NodeImpl::new().leaf(true).build();
+        node2.read(page);
+        for n in node2.node().inodes.iter() {
+            print!(
+                "flags:{},key:{:?},value:{:?},pgid:{} || ",
+                n.flags, n.key, n.value, n.pgid
+            );
+        }
+    }
 }

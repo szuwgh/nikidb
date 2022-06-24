@@ -57,7 +57,9 @@ impl Tx {
         let tx = self.tx();
         let db = tx.db();
 
-        tx.root.borrow_mut().rebalance(db.get_page_size() as usize);
+        tx.root
+            .borrow_mut()
+            .rebalance(db.get_page_size() as usize)?;
         tx.root.borrow_mut().spill(self.0.clone())?;
         //回收旧的freelist列表
         {
@@ -132,7 +134,7 @@ impl TxImpl {
             let page = p.1.to_page();
             let page_size = self.dbImpl.get_page_size();
             let offset = page.id * page_size as u64;
-            //  println!("offset:{}", offset);
+            println!("write page id:{}", page.id);
             self.db().write_at(&p.1.value, offset)?;
         }
         self.db().sync()?;

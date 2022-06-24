@@ -67,7 +67,7 @@ pub(crate) struct DBImpl {
     //rwlock: Met,
 }
 
-struct MmapUtil {
+pub(crate) struct MmapUtil {
     pub(crate) page_size: usize,
     mmap: Option<memmap::Mmap>,
     meta0: *const Meta,
@@ -159,11 +159,11 @@ impl MmapUtil {
         }
     }
 
-    fn page_in_buffer_mut<'a>(&mut self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
+    pub(crate) fn page_in_buffer_mut<'a>(&self, buf: &'a mut [u8], id: u32) -> &'a mut Page {
         Page::from_buf_mut(&mut buf[(id as usize * self.page_size)..])
     }
 
-    fn page_in_buffer<'a>(&self, buf: &'a [u8], id: u32) -> &'a Page {
+    pub(crate) fn page_in_buffer<'a>(&self, buf: &'a [u8], id: u32) -> &'a Page {
         Page::from_buf(&buf[(id as usize * self.page_size) as usize..])
     }
 
@@ -410,22 +410,14 @@ mod tests {
     #[test]
     fn test_tx_create_bucket() {
         let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        // let mut db1 = db.clone();
-        //  let handle = thread::spawn(move || {
         let mut tx1 = db.begin_rwtx();
         tx1.create_bucket("888".as_bytes()).unwrap();
         tx1.commit();
-        // });
-        // handle.join().unwrap();
         db.print();
-        // let mut db2 = db.clone();
-        //  let handle1 = thread::spawn(move || {
         let mut tx2 = db.begin_rwtx();
         let b = tx2.bucket("888".as_bytes()).unwrap();
-        b.put(b"0001", b"aaa");
+        b.put(b"001", b"aaa");
         tx2.commit();
-        //   });
-        // handle1.join().unwrap();
         db.print();
     }
 
@@ -433,12 +425,5 @@ mod tests {
     fn test_db_print() {
         let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
         db.print();
-        // let mut db2 = db.clone();
-        // let handle1 = thread::spawn(move || {
-        //     let mut tx1 = db2.begin_rwtx();
-        //     tx1.create_bucket("bbb".as_bytes()).unwrap();
-        //     tx1.commit();
-        // });
-        // handle1.join().unwrap();
     }
 }

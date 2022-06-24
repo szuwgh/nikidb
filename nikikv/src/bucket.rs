@@ -276,13 +276,14 @@ impl Bucket {
         n
     }
 
-    pub(crate) fn rebalance(&mut self, page_size: usize) {
+    pub(crate) fn rebalance(&mut self, page_size: usize) -> NKResult<()> {
         for n in self.nodes.borrow_mut().values_mut() {
-            n.rebalance(page_size, self);
+            n.rebalance(page_size, self)?;
         }
         for b in self.buckets.borrow_mut().values_mut() {
-            b.rebalance(page_size);
+            b.rebalance(page_size)?;
         }
+        Ok(())
     }
 
     pub(crate) fn max_inline_bucket_size(&self) -> usize {
