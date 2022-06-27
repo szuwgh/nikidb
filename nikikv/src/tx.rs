@@ -79,7 +79,7 @@ impl Tx {
         tx.pages.borrow_mut().insert(page.id, p);
 
         tx.meta.borrow_mut().root.root = tx.root.borrow().ibucket.root;
-        println!("root pgid:{}", tx.root.borrow().ibucket.root);
+        println!("meta root pgid:{}", tx.root.borrow().ibucket.root);
         //write dirty page
         tx.write()?;
 

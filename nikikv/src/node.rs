@@ -2,8 +2,8 @@ use crate::bucket::{Bucket, IBucket, MAX_FILL_PERCENT, MIN_FILL_PERCENT};
 use crate::db::DBImpl;
 use crate::error::NKResult;
 use crate::page::{
-    BranchPageElementSize, BranchPageFlag, LeafPageElementSize, LeafPageFlag, Page, Pgid,
-    MIN_KEY_PERPAGE,
+    BranchPageElementSize, BranchPageFlag, BucketLeafFlag, LeafPageElementSize, LeafPageFlag, Page,
+    Pgid, MIN_KEY_PERPAGE,
 };
 use crate::tx::TxImpl;
 use std::cell::{Ref, RefCell, RefMut};
@@ -114,7 +114,7 @@ impl Node {
                 n.flags, n.key, n.value, n.pgid
             );
             println!("");
-            if n.flags & BranchPageFlag as u32 != 0 {
+            if n.flags & BucketLeafFlag as u32 != 0 {
                 let ibucket = crate::u8_to_struct::<IBucket>(n.value.as_slice());
                 let p = unsafe { &*db.page(ibucket.root) };
                 let mut node = NodeImpl::new().build();
@@ -128,11 +128,13 @@ impl Node {
     pub(crate) fn read(&mut self, p: &Page) {
         let mut node_mut = self.node_mut();
         node_mut.pgid = p.id;
+        println!("p.flags:{}", p.flags);
         node_mut.is_leaf = (p.flags & LeafPageFlag) != 0;
         let count = p.count as usize;
         node_mut.inodes = Vec::with_capacity(count);
         for i in 0..count {
             let mut inode = INode::new();
+            println!("is_leaf:{}", node_mut.is_leaf);
             if node_mut.is_leaf {
                 let elem = p.leaf_page_element(i);
                 inode.flags = elem.flags;
@@ -522,7 +524,7 @@ impl Node {
         let db = tx.db();
 
         let mut nodes = self.split(db.get_page_size() as usize, bucket.fill_percent);
-        println!("split nodes len:{}", nodes.len());
+
         // 这里设置父节点信息
         let parent_node = if nodes.len() == 1 {
             None
@@ -562,7 +564,14 @@ impl Node {
                 );
             }
             n.node_mut().pgid = page.id;
+
             n.write(page);
+            println!(
+                "xxxx,pgid:{},flag:{},is_leaf:{}",
+                page.id,
+                page.flags,
+                n.node().is_leaf
+            );
             tx.pages.borrow_mut().insert(page.id, p);
             n.node_mut().spilled = true;
 

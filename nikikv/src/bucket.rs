@@ -268,10 +268,13 @@ impl Bucket {
             n
         };
 
-        if self.page.is_none() {
+        let page = if let Some(p) = &self.page {
+            p.to_page()
+        } else {
             let p = self.tx().unwrap().db().page(pgid);
-            n.read(unsafe { &*p });
-        }
+            unsafe { &*p }
+        };
+        n.read(page);
         self.nodes.borrow_mut().insert(pgid, n.clone());
         n
     }
@@ -316,7 +319,7 @@ impl Bucket {
             // b.in
             let value = if child.inline_able() {
                 println!("bucket is inline_able");
-                child.free();
+                child.free()?;
                 child.write()
             } else {
                 println!("bucket is no inline_able, to spill");
@@ -325,6 +328,7 @@ impl Bucket {
                 let bucket = value.as_ptr() as *mut IBucket;
                 unsafe {
                     *bucket = *&child.ibucket;
+                    println!("!!!{}", (*bucket).root)
                 }
                 value
             };
@@ -344,10 +348,12 @@ impl Bucket {
             c.node()?
                 .put(name, name, value.as_slice(), 0, BucketLeafFlag);
         }
+
         if let Some(n) = &self.root_node {
             let mut root = n.clone();
             let root_node = root.spill(atx, &self)?;
             self.ibucket.root = root_node.node().pgid;
+            println!("self.ibucket.root:{}", root_node.node().pgid);
             self.root_node.replace(root_node);
         }
 

@@ -282,7 +282,7 @@ impl<'a> Cursor<'a> {
             let child = n.child_at(self.bucket, e.index, Some(Rc::downgrade(&n.0)));
             n = child;
         }
-
+        assert!(n.node().is_leaf, "expected leaf node");
         Ok(n)
     }
 }

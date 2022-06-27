@@ -21,7 +21,7 @@ const MAX_MMAP_STEP: u64 = 1 << 30;
 
 fn get_page_size() -> usize {
     // page_size::get()
-    return 512;
+    return 256;
 }
 
 #[derive(Clone)]
@@ -417,6 +417,9 @@ mod tests {
         let mut tx2 = db.begin_rwtx();
         let b = tx2.bucket("888".as_bytes()).unwrap();
         b.put(b"001", b"aaa");
+        b.put(b"002", b"bbb");
+        b.put(b"003", b"ccc");
+        b.put(b"004", b"ddd");
         tx2.commit();
         db.print();
     }
