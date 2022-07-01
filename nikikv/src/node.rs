@@ -121,6 +121,12 @@ impl Node {
                 node.read(p);
                 node.print(db);
             }
+            if n.flags & BranchPageFlag as u32 != 0 {
+                let p = unsafe { &*db.page(n.pgid) };
+                let mut node = NodeImpl::new().build();
+                node.read(p);
+                node.print(db);
+            }
         }
         println!("");
     }
@@ -134,7 +140,7 @@ impl Node {
         node_mut.inodes = Vec::with_capacity(count);
         for i in 0..count {
             let mut inode = INode::new();
-            println!("is_leaf:{}", node_mut.is_leaf);
+            // println!("is_leaf:{}", node_mut.is_leaf);
             if node_mut.is_leaf {
                 let elem = p.leaf_page_element(i);
                 inode.flags = elem.flags;
@@ -478,7 +484,7 @@ impl Node {
         if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 || self.node_less_than(page_size) {
             return None;
         }
-        println!();
+        println!("split_two");
         if fill_percent < MIN_FILL_PERCENT {
             fill_percent = MIN_FILL_PERCENT;
         } else if fill_percent > MAX_FILL_PERCENT {
@@ -526,7 +532,7 @@ impl Node {
         let mut nodes = self.split(db.get_page_size() as usize, bucket.fill_percent);
 
         // 这里设置父节点信息
-        let parent_node = if nodes.len() == 1 {
+        let mut parent_node = if nodes.len() == 1 {
             None
         } else {
             if let Some(parent) = &self.node().parent {
@@ -575,14 +581,17 @@ impl Node {
             tx.pages.borrow_mut().insert(page.id, p);
             n.node_mut().spilled = true;
 
-            if let Some(parent) = &n.node().parent {
-                let mut parent_node = parent.upgrade().map(Node).unwrap();
+            if let Some(parent) = &mut parent_node {
+                // let mut parent_node = parent.upgrade().map(Node).unwrap();
                 if let Some(key) = &n.node().key {
-                    parent_node.put(key, key, &vec![], n.node().pgid, 0);
+                    parent.put(key, key, &vec![], n.node().pgid, 0);
                 } else {
                     let n1 = n.node();
                     let inode = n1.inodes.first().unwrap();
-                    parent_node.put(&inode.key, &inode.key, &vec![], n.node().pgid, 0);
+                    parent.put(&inode.key, &inode.key, &vec![], n.node().pgid, 0);
+                }
+                if n.node().parent.is_none() {
+                    n.node_mut().parent.replace(Rc::downgrade(&parent.0));
                 }
             }
         }

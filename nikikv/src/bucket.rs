@@ -353,7 +353,6 @@ impl Bucket {
             let mut root = n.clone();
             let root_node = root.spill(atx, &self)?;
             self.ibucket.root = root_node.node().pgid;
-            println!("self.ibucket.root:{}", root_node.node().pgid);
             self.root_node.replace(root_node);
         }
 
