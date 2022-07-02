@@ -6,3 +6,4 @@ nikidb/target/
 target/
 .data
 *.data.*
+*.db
