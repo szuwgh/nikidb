@@ -121,7 +121,7 @@ impl Node {
                 node.read(p);
                 node.print(db);
             }
-            if n.flags & BranchPageFlag as u32 != 0 {
+            if n.pgid != 0 {
                 let p = unsafe { &*db.page(n.pgid) };
                 let mut node = NodeImpl::new().build();
                 node.read(p);

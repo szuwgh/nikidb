@@ -56,7 +56,7 @@ impl Bucket {
             },
             nodes: RefCell::new(HashMap::new()),
             weak_tx: tx,
-            root_node: None, // Some(NodeImpl::new().leaf(true).build()),
+            root_node: None,
             page: None,
             buckets: RefCell::new(HashMap::new()),
             fill_percent: DEFAULT_FILL_PERCENT,
@@ -148,7 +148,7 @@ impl Bucket {
         item.1
     }
 
-    pub(crate) fn del(&mut self, key: &[u8]) -> NKResult<()> {
+    pub(crate) fn delete(&mut self, key: &[u8]) -> NKResult<()> {
         Ok(())
     }
 
