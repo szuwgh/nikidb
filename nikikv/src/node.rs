@@ -9,6 +9,7 @@ use crate::tx::TxImpl;
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 use std::rc::Weak;
+use std::str;
 use std::sync::Arc;
 use std::vec;
 
@@ -77,7 +78,8 @@ impl Node {
         if self.node().is_leaf {
             panic!("invalid childAt{} on a leaf node", index);
         }
-        bucket.node(self.node().inodes[index].pgid, parent)
+        let pgid = self.node().inodes[index].pgid;
+        bucket.node(pgid, parent)
     }
 
     fn min_keys(&self) -> usize {
@@ -111,7 +113,10 @@ impl Node {
         for n in self.node().inodes.iter() {
             print!(
                 "flags:{},key:{:?},value:{:?},pgid:{} || ",
-                n.flags, n.key, n.value, n.pgid
+                n.flags,
+                str::from_utf8(n.key.as_slice()).unwrap(),
+                n.value,
+                n.pgid
             );
             println!("");
             if n.flags & BucketLeafFlag as u32 != 0 {
@@ -364,6 +369,7 @@ impl Node {
         if self.size() > threshold && self.node().inodes.len() > self.min_keys() {
             return Ok(());
         }
+        println!("rebalance node");
         //当前节点是根节点，特殊处理
         if self.parent().is_none() {
             //当前节点是branch节点并且只有一个一个inode, 分裂当前节点
@@ -385,28 +391,35 @@ impl Node {
             return Ok(());
         }
         let mut p = self.parent().unwrap();
+        //如果当前的节点没有存储key ,移除当前的节点
         if self.num_children() == 0 {
+            //如果当前的节点没有叶子节点，并行size<threshold
+            //移除当前这个节点
             if let Some(k) = &self.node().key {
                 p.del(k);
             }
             p.remove_child(self.clone());
             bucket.nodes.borrow_mut().remove(&self.node().pgid);
-            self.free(bucket);
+            self.free(bucket); //释放当前节点对应的page
             p.rebalance(page_size, bucket)?;
         }
-
-        let use_next_sibing = (p.child_index(self.node().key.as_ref().unwrap()) == 0);
+        //下面的情况是当前节点有数据
+        let use_next_sibing = (p.child_index(self.node().key.as_ref().unwrap()) == 0); //找到需要rebalance的节点的位置
         let mut target = if use_next_sibing {
+            //当前节点是最左边的节点
             self.next_sibling(bucket).unwrap()
         } else {
+            //左边的兄弟节点
             self.prev_sibling(bucket).unwrap()
         };
-
+        // 如果当前节点和target节点都太小了，则合并他们
         if use_next_sibing {
             for inode in target.node().inodes.iter() {
+                //如果目标节点是当前节点的右边的兄弟节点，则将target节点合并到当前节点，
                 if let Some(child) = bucket.nodes.borrow_mut().get_mut(&inode.pgid) {
                     child.parent().unwrap().remove_child(child.clone());
-                    child.node_mut().parent = Some(Rc::downgrade(&self.0));
+                    child.node_mut().parent = Some(Rc::downgrade(&self.0)); //重新计算其父节点为当前节点
+                                                                            //将child加入当前node的子节点中
                     child
                         .parent()
                         .unwrap()
@@ -417,15 +430,17 @@ impl Node {
             }
 
             let mut p = self.parent().unwrap();
+            // 将目标节点的元素添加到当前节点的元素数组中
             self.node_mut()
                 .inodes
                 .append(&mut target.node_mut().inodes.drain(..).collect::<Vec<INode>>());
-            p.del(target.node().key.as_ref().unwrap());
-            p.remove_child(target.clone());
-            bucket.nodes.borrow_mut().remove(&target.node().pgid);
-            target.free(bucket);
+            p.del(target.node().key.as_ref().unwrap()); //将目标节点的key从父节点中移除（target节点和n的父节点是同一个）
+            p.remove_child(target.clone()); //从目标节点的父节点的叶子节点中移除目标节点
+            bucket.nodes.borrow_mut().remove(&target.node().pgid); //删除当前bucket的节点缓存中的目标节点
+            target.free(bucket); //释放target节点占有的页面
         } else {
             {
+                //如果target节点是当前节点的左边的兄弟节点，则将当前节点合并到左边的兄弟节点
                 for inode in self.node().inodes.iter() {
                     if let Some(child) = bucket.nodes.borrow_mut().get_mut(&inode.pgid) {
                         child.parent().unwrap().remove_child(child.clone());
@@ -438,12 +453,12 @@ impl Node {
                             .push(child.clone());
                     }
                 }
-            }
+            } //将当前节点重父节点和当前bucket的缓存中移除，并且将当前节点的元素添加到左边的兄弟节点中
             let mut p = self.parent().unwrap();
             target
                 .node_mut()
                 .inodes
-                .append(&mut self.node_mut().inodes.drain(..).collect::<Vec<INode>>());
+                .append(&mut self.node_mut().inodes.drain(..).collect::<Vec<INode>>()); // inodes按照key排序，添加到目标节点中仍然是有序的
             p.del(self.node().key.as_ref().unwrap());
             p.remove_child(self.clone());
             bucket.nodes.borrow_mut().remove(&self.node().pgid);
@@ -484,7 +499,7 @@ impl Node {
         if self.node().inodes.len() <= MIN_KEY_PERPAGE * 2 || self.node_less_than(page_size) {
             return None;
         }
-        println!("split_two");
+
         if fill_percent < MIN_FILL_PERCENT {
             fill_percent = MIN_FILL_PERCENT;
         } else if fill_percent > MAX_FILL_PERCENT {
@@ -573,7 +588,7 @@ impl Node {
 
             n.write(page);
             println!(
-                "xxxx,pgid:{},flag:{},is_leaf:{}",
+                "allocate ,pgid:{},flag:{},is_leaf:{}",
                 page.id,
                 page.flags,
                 n.node().is_leaf

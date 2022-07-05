@@ -54,6 +54,7 @@ impl FreeList {
         if p.id <= 1 {
             panic!("cannot free page 0 or 1: {}", p.id);
         }
+        println!("free page:{}", p.id);
         let ids = self.pending.entry(txid).or_insert(Vec::new());
         for id in p.id..=p.id + p.overflow as Pgid {
             if self.cache.contains_key(&id) {

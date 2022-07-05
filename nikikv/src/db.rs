@@ -448,6 +448,35 @@ mod tests {
         b.put(b"013", b"ddd");
         tx4.commit();
         db.print();
+        println!("---------------------");
+        let mut tx5 = db.begin_rwtx();
+        let b = tx5.bucket("888".as_bytes()).unwrap();
+        b.delete(b"009");
+        tx5.commit();
+        db.print();
+    }
+
+    #[test]
+    fn test_tx_delete() {
+        let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+        let mut tx1 = db.begin_rwtx();
+        tx1.create_bucket("888".as_bytes()).unwrap();
+        tx1.commit();
+        db.print();
+        let mut tx2 = db.begin_rwtx();
+        let b = tx2.bucket("888".as_bytes()).unwrap();
+        b.put(b"001", b"aaa");
+        b.put(b"002", b"bbb");
+        b.put(b"003", b"ccc");
+        b.put(b"004", b"ddd");
+        tx2.commit();
+        db.print();
+
+        let mut tx3 = db.begin_rwtx();
+        let b = tx3.bucket("888".as_bytes()).unwrap();
+        b.delete(b"001");
+        tx3.commit();
+        db.print();
     }
 
     #[test]

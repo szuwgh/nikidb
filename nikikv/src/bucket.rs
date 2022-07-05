@@ -149,6 +149,12 @@ impl Bucket {
     }
 
     pub(crate) fn delete(&mut self, key: &[u8]) -> NKResult<()> {
+        let mut c = self.cursor();
+        let item = c.seek(key).unwrap();
+        if item.flags() & BucketLeafFlag != 0 {
+            return Err(NKError::IncompatibleValue);
+        }
+        c.node()?.del(key);
         Ok(())
     }
 
@@ -258,9 +264,9 @@ impl Bucket {
         }
 
         let mut n = if let Some(p) = parent {
-            let parent_node = p.upgrade().unwrap();
             let n = NodeImpl::new().parent(p.clone()).build();
-            (*parent_node).borrow_mut().children.push(n.clone());
+            let mut parent_node = p.upgrade().map(Node).unwrap();
+            parent_node.node_mut().children.push(n.clone());
             n
         } else {
             let n = NodeImpl::new().build();
@@ -328,7 +334,6 @@ impl Bucket {
                 let bucket = value.as_ptr() as *mut IBucket;
                 unsafe {
                     *bucket = *&child.ibucket;
-                    println!("!!!{}", (*bucket).root)
                 }
                 value
             };
