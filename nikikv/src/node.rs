@@ -61,7 +61,7 @@ impl NodeImpl {
 
 impl Node {
     #[inline]
-    pub(crate) fn node_mut(&mut self) -> RefMut<'_, NodeImpl> {
+    pub(crate) fn node_mut(&self) -> RefMut<'_, NodeImpl> {
         (*(self.0)).borrow_mut()
     }
     #[inline]
@@ -186,14 +186,7 @@ impl Node {
         self.node_mut().unbalanced = true;
     }
 
-    pub(crate) fn put(
-        &mut self,
-        old_key: &[u8],
-        new_key: &[u8],
-        value: &[u8],
-        pgid: Pgid,
-        flags: u32,
-    ) {
+    pub(crate) fn put(&self, old_key: &[u8], new_key: &[u8], value: &[u8], pgid: Pgid, flags: u32) {
         // if pgid > bucket.tx().unwrap().meta.borrow().pgid {
         //     panic!(
         //         "pgid {} above high water mark {}",
@@ -216,16 +209,18 @@ impl Node {
                 Err(e) => (false, e),
             }
         };
-        let mut n1 = self.node_mut();
-        if !exact {
-            n1.inodes.insert(index, INode::new());
+        {
+            let mut n1 = self.node_mut();
+            if !exact {
+                n1.inodes.insert(index, INode::new());
+            }
+            let inode = n1.inodes.get_mut(index).unwrap();
+            inode.flags = flags;
+            inode.key = new_key.to_vec();
+            inode.value = value.to_vec();
+            inode.pgid = pgid;
+            assert!(inode.key.len() > 0, "put: zero-length inode key")
         }
-        let inode = n1.inodes.get_mut(index).unwrap();
-        inode.flags = flags;
-        inode.key = new_key.to_vec();
-        inode.value = value.to_vec();
-        inode.pgid = pgid;
-        assert!(inode.key.len() > 0, "put: zero-length inode key")
     }
 
     pub(crate) fn write(&self, p: &mut Page) {
@@ -404,7 +399,7 @@ impl Node {
             p.rebalance(page_size, bucket)?;
         }
         //下面的情况是当前节点有数据
-        let use_next_sibing = (p.child_index(self.node().key.as_ref().unwrap()) == 0); //找到需要rebalance的节点的位置
+        let use_next_sibing = p.child_index(self.node().key.as_ref().unwrap()) == 0; //找到需要rebalance的节点的位置
         let mut target = if use_next_sibing {
             //当前节点是最左边的节点
             self.next_sibling(bucket).unwrap()
@@ -468,7 +463,7 @@ impl Node {
     }
 
     //添加元素 分裂
-    fn split(&mut self, page_size: usize, fill_percent: f64) -> Vec<Node> {
+    fn split(&self, page_size: usize, fill_percent: f64) -> Vec<Node> {
         let mut nodes = vec![self.clone()];
         let mut node = self.clone();
         while let Some(b) = node.split_two(page_size, fill_percent) {
@@ -528,7 +523,7 @@ impl Node {
     }
 
     //node spill return parent
-    pub(crate) fn spill(&mut self, atx: Arc<TxImpl>, bucket: &Bucket) -> NKResult<Node> {
+    pub(crate) fn spill(&self, atx: Arc<TxImpl>, bucket: &Bucket) -> NKResult<Node> {
         if self.node().spilled {
             return Ok(self.clone());
         }
@@ -536,29 +531,36 @@ impl Node {
         self.node_mut()
             .children
             .sort_by(|a, b| (*a).node().inodes[0].key.cmp(&(*b).node().inodes[0].key));
-        for mut child in self.node_mut().children.clone() {
+
+        let children = self.node().children.clone();
+        for child in children.iter() {
             child.spill(atx.clone(), bucket)?;
         }
 
         self.node_mut().children.clear();
+
         let tx = atx.clone();
         let db = tx.db();
 
         let mut nodes = self.split(db.get_page_size() as usize, bucket.fill_percent);
 
         // 这里设置父节点信息
-        let mut parent_node = if nodes.len() == 1 {
-            None
+        let parent_node = if nodes.len() == 1 {
+            if let Some(p) = &nodes.first().unwrap().node().parent {
+                p.upgrade().map(Node).clone()
+            } else {
+                None
+            }
         } else {
             if let Some(parent) = &self.node().parent {
-                let mut p = parent.upgrade().map(Node).unwrap();
+                let p = parent.upgrade().map(Node).unwrap();
                 for n in nodes.iter_mut() {
                     n.node_mut().parent = Some(parent.clone());
                 }
                 p.node_mut().children.extend_from_slice(&nodes[1..]);
                 Some(p)
             } else {
-                let mut parent = NodeImpl::new().leaf(false).build();
+                let parent = NodeImpl::new().leaf(false).build();
                 parent
                     .node_mut()
                     .children
@@ -596,14 +598,16 @@ impl Node {
             tx.pages.borrow_mut().insert(page.id, p);
             n.node_mut().spilled = true;
 
-            if let Some(parent) = &mut parent_node {
+            if let Some(parent) = &parent_node {
                 // let mut parent_node = parent.upgrade().map(Node).unwrap();
                 if let Some(key) = &n.node().key {
-                    parent.put(key, key, &vec![], n.node().pgid, 0);
+                    let pgid = n.node().pgid;
+                    parent.put(key, key, &vec![], pgid, 0);
                 } else {
                     let n1 = n.node();
                     let inode = n1.inodes.first().unwrap();
-                    parent.put(&inode.key, &inode.key, &vec![], n.node().pgid, 0);
+                    let pgid = n.node().pgid;
+                    parent.put(&inode.key, &inode.key, &vec![], pgid, 0);
                 }
                 if n.node().parent.is_none() {
                     n.node_mut().parent.replace(Rc::downgrade(&parent.0));
