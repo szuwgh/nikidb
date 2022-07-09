@@ -371,8 +371,8 @@ impl Node {
             if !self.node().is_leaf && self.node().inodes.len() == 1 {
                 // 将root节点的叶子节点上移
                 // 创建一个新的子节点，以当前节点作为root节点
-                let mut child =
-                    bucket.node(self.node().inodes[0].pgid, Some(Rc::downgrade(&self.0)));
+                let pgid = self.node().inodes[0].pgid;
+                let mut child = bucket.node(pgid, Some(Rc::downgrade(&self.0)));
 
                 let mut node_mut = self.node_mut();
                 node_mut.is_leaf = child.node().is_leaf;
@@ -394,9 +394,11 @@ impl Node {
                 p.del(k);
             }
             p.remove_child(self.clone());
-            bucket.nodes.borrow_mut().remove(&self.node().pgid);
+            let pgid = self.node().pgid;
+            bucket.nodes.borrow_mut().remove(&pgid);
             self.free(bucket); //释放当前节点对应的page
             p.rebalance(page_size, bucket)?;
+            return Ok(());
         }
         //下面的情况是当前节点有数据
         let use_next_sibing = p.child_index(self.node().key.as_ref().unwrap()) == 0; //找到需要rebalance的节点的位置

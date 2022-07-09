@@ -150,7 +150,7 @@ impl Bucket {
 
     pub(crate) fn delete(&mut self, key: &[u8]) -> NKResult<()> {
         let mut c = self.cursor();
-        let item = c.seek(key).unwrap();
+        let item = c.seek(key)?;
         if item.flags() & BucketLeafFlag != 0 {
             return Err(NKError::IncompatibleValue);
         }
@@ -265,7 +265,7 @@ impl Bucket {
 
         let mut n = if let Some(p) = parent {
             let n = NodeImpl::new().parent(p.clone()).build();
-            let mut parent_node = p.upgrade().map(Node).unwrap();
+            let parent_node = p.upgrade().map(Node).unwrap();
             parent_node.node_mut().children.push(n.clone());
             n
         } else {
@@ -286,9 +286,11 @@ impl Bucket {
     }
 
     pub(crate) fn rebalance(&mut self, page_size: usize) -> NKResult<()> {
-        for n in self.nodes.borrow_mut().values_mut() {
+        let nodes = self.nodes.clone();
+        for n in nodes.borrow_mut().values_mut() {
             n.rebalance(page_size, self)?;
         }
+
         for b in self.buckets.borrow_mut().values_mut() {
             b.rebalance(page_size)?;
         }

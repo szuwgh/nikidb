@@ -2,13 +2,14 @@ use crate::bucket::Bucket;
 use crate::db::DBImpl;
 use crate::error::{NKError, NKResult};
 use crate::page::{Meta, OwnerPage, Page, Pgid};
+
+use lock_api::{RawMutex, RawRwLock};
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ptr::null;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock, Weak};
-
 pub(crate) type Txid = u64;
 
 pub(crate) struct Tx(pub(crate) Arc<TxImpl>);
@@ -86,12 +87,21 @@ impl Tx {
         //write meta
         tx.write_meta()?;
 
+        self.close();
+
         Ok(())
     }
 
     pub(crate) fn close(&self) {
         if !self.0.writable {
             self.0.db().remove_tx(self.clone());
+            unsafe {
+                self.0.db().mmap.raw().unlock_shared();
+            }
+        } else {
+            unsafe {
+                self.0.db().rw_lock.raw().unlock();
+            }
         }
     }
 }

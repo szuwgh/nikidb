@@ -7,13 +7,13 @@ use crate::page::{
 };
 use crate::tx::{Tx, TxImpl, Txid};
 use crate::{magic, version};
-
+use lock_api::{RawMutex, RawRwLock};
+use parking_lot::{Mutex, RwLock};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::prelude::FileExt;
 use std::ptr::null;
 use std::sync::Arc;
-use std::sync::RwLock;
 
 const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
 
@@ -29,10 +29,13 @@ pub struct DB(Arc<DBImpl>);
 
 impl DB {
     fn begin_rwtx(&mut self) -> Tx {
+        unsafe {
+            self.0.rw_lock.raw().lock();
+        }
         let mut tx = Tx(Arc::new(TxImpl::build(true, self.0.clone())));
         tx.init();
         *(self.0.rwtx.try_write().unwrap()) = Some(tx.clone());
-        let txs = self.0.txs.read().unwrap();
+        let txs = self.0.txs.read();
         let minid = txs
             .iter()
             .map(|tx| tx.id())
@@ -46,6 +49,9 @@ impl DB {
     }
 
     fn begin_tx(&mut self) -> Tx {
+        unsafe {
+            self.0.mmap.raw().lock_shared();
+        }
         let mut tx = Tx(Arc::new(TxImpl::build(false, self.0.clone())));
         tx.init();
         self.0.txs.try_write().unwrap().push(tx.clone());
@@ -59,11 +65,12 @@ impl DB {
 
 pub(crate) struct DBImpl {
     file: RwLock<File>,
-    mmap: RwLock<MmapUtil>,
+    pub(crate) mmap: RwLock<MmapUtil>,
     page_pool: RwLock<Vec<Vec<u8>>>,
     pub(crate) freelist: RwLock<FreeList>,
     rwtx: RwLock<Option<Tx>>,
     txs: RwLock<Vec<Tx>>,
+    pub(crate) rw_lock: Mutex<()>,
 }
 
 pub(crate) struct MmapUtil {
@@ -252,6 +259,7 @@ impl DBImpl {
             freelist: RwLock::new(FreeList::default()),
             rwtx: RwLock::new(None),
             txs: RwLock::new(Vec::new()),
+            rw_lock: Mutex::new(()),
         }
     }
 
@@ -444,14 +452,20 @@ mod tests {
         let b = tx4.bucket("888".as_bytes()).unwrap();
         b.put(b"009", b"aaa");
         b.put(b"010", b"bbb");
-        b.put(b"012", b"ccc");
-        b.put(b"013", b"ddd");
+        b.put(b"011", b"ccc");
+        b.put(b"012", b"ddd");
         tx4.commit();
         db.print();
         println!("---------------------");
         let mut tx5 = db.begin_rwtx();
         let b = tx5.bucket("888".as_bytes()).unwrap();
+        b.delete(b"006");
+        b.delete(b"007");
+        b.delete(b"008");
         b.delete(b"009");
+        b.delete(b"010");
+        b.delete(b"011");
+        b.delete(b"012");
         tx5.commit();
         db.print();
     }

@@ -263,7 +263,20 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
 
-    fn search_node(&self, key: &[u8], p: &Node) -> NKResult<()> {
+    fn search_node(&mut self, key: &[u8], n: &Node) -> NKResult<()> {
+        let (exact, mut index) = match n
+            .node()
+            .inodes
+            .binary_search_by(|inode| inode.key.as_slice().cmp(key))
+        {
+            Ok(v) => (true, v),
+            Err(e) => (false, e),
+        };
+        if !exact && index > 0 {
+            index -= 1;
+        }
+        self.stack.last_mut().ok_or("stack empty")?.index = index;
+        self.search(key, n.node().inodes[index].pgid)?;
         Ok(())
     }
 
