@@ -18,7 +18,6 @@ pub(crate) struct Node(pub(crate) Rc<RefCell<NodeImpl>>);
 
 #[derive(Clone)]
 pub(crate) struct NodeImpl {
-    // pub(crate) bucket: *mut Bucket,
     pub(crate) is_leaf: bool,
     pub(crate) inodes: Vec<INode>,
     pub(crate) parent: Option<Weak<RefCell<NodeImpl>>>,
@@ -302,8 +301,8 @@ impl Node {
         match self.parent() {
             None => None,
             Some(mut p) => {
-                let index = self.child_index(self.node().key.as_ref().unwrap());
-                if index > self.node().children.len() - 1 {
+                let index = p.child_index(self.node().key.as_ref().unwrap());
+                if index as isize > self.num_children() as isize - 1 {
                     return None;
                 }
                 Some(p.child_at(bucket, index + 1, Some(Rc::downgrade(&p.0))))
@@ -315,7 +314,7 @@ impl Node {
         match self.parent() {
             None => None,
             Some(mut p) => {
-                let index = self.child_index(self.node().key.as_ref().unwrap());
+                let index = p.child_index(self.node().key.as_ref().unwrap());
                 if index == 0 {
                     return None;
                 }

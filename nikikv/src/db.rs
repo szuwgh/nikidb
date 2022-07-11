@@ -2,9 +2,7 @@ use crate::bucket::IBucket;
 use crate::error::{NKError, NKResult};
 use crate::freelist::FreeList;
 use crate::node::NodeImpl;
-use crate::page::{
-    self, FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, OwnerPage, Page, Pgid,
-};
+use crate::page::{FreeListPageFlag, LeafPageFlag, Meta, MetaPageFlag, OwnerPage, Page, Pgid};
 use crate::tx::{Tx, TxImpl, Txid};
 use crate::{magic, version};
 use lock_api::{RawMutex, RawRwLock};
@@ -207,7 +205,6 @@ impl DBImpl {
         let size = f.metadata().map_err(|e| NKError::DBOpenFail(e))?.len();
         let mut db = Self::new(f);
         if size == 0 {
-            println!("init db");
             db.init()?;
         } else {
             let mut buf = vec![0; get_page_size()];
@@ -219,7 +216,6 @@ impl DBImpl {
             let m = db.mmap.try_read().unwrap().page_in_buffer(&buf, 0).meta();
             m.validate()?;
             db.mmap.try_write().unwrap().page_size = m.page_size;
-            println!("read:checksum {}", m.checksum);
         }
         db.mmap
             .try_write()
@@ -238,17 +234,9 @@ impl DBImpl {
         let meta = self.meta();
         let root = meta.root.root;
         let p = unsafe { &*self.page(root) };
-        println!("id:{},flag:{},count:{}", p.id, p.flags, p.count);
-        println!("root:{}", root);
         let mut node = NodeImpl::new().build();
         node.read(p);
         node.print(self);
-
-        println!("freelist ids:{:?}", self.freelist.try_read().unwrap().ids);
-        println!(
-            "freelist pending:{:?}",
-            self.freelist.try_read().unwrap().pending
-        );
     }
 
     fn new(file: File) -> DBImpl {
@@ -436,37 +424,7 @@ mod tests {
         b.put(b"006", b"bbb");
         b.put(b"007", b"ccc");
         b.put(b"008", b"ddd");
-        tx3.commit();
-        db.print();
-
-        let mut tx3 = db.begin_rwtx();
-        let b = tx3.bucket("888".as_bytes()).unwrap();
-        b.put(b"005", b"aaa");
-        b.put(b"006", b"bbb");
-        b.put(b"007", b"ccc");
-        b.put(b"008", b"ddd");
-        tx3.commit();
-        db.print();
-
-        let mut tx4 = db.begin_rwtx();
-        let b = tx4.bucket("888".as_bytes()).unwrap();
-        b.put(b"009", b"aaa");
-        b.put(b"010", b"bbb");
-        b.put(b"011", b"ccc");
-        b.put(b"012", b"ddd");
-        tx4.commit();
-        db.print();
-        println!("---------------------");
-        let mut tx5 = db.begin_rwtx();
-        let b = tx5.bucket("888".as_bytes()).unwrap();
-        b.delete(b"006");
-        b.delete(b"007");
-        b.delete(b"008");
-        b.delete(b"009");
-        b.delete(b"010");
-        b.delete(b"011");
-        b.delete(b"012");
-        tx5.commit();
+        tx3.rollback();
         db.print();
     }
 

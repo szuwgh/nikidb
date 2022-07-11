@@ -3,8 +3,8 @@ use crate::{
     page::{FreeListPageFlag, Page, Pgid},
     tx::Txid,
 };
+use std::collections::HashMap;
 use std::mem::size_of;
-use std::{collections::HashMap, future::pending};
 
 pub(crate) struct FreeList {
     pub(crate) ids: Vec<Pgid>,
@@ -43,7 +43,13 @@ impl FreeList {
         self.pending.iter().map(|x| x.1.len()).sum()
     }
 
-    pub(crate) fn rollback() -> NKResult<()> {
+    pub(crate) fn rollback(&mut self, txid: Txid) -> NKResult<()> {
+        if let Some(ids) = self.pending.get(&txid) {
+            for v in ids {
+                self.cache.remove(v);
+            }
+        }
+        self.pending.remove(&txid);
         Ok(())
     }
 
@@ -164,6 +170,25 @@ impl FreeList {
         dst[..self.ids.len()].copy_from_slice(self.ids.as_slice())
     }
 
+    pub(crate) fn reload(&mut self, p: &Page) -> NKResult<()> {
+        self.read(p);
+        let mut pcache: HashMap<Pgid, bool> = HashMap::new();
+        for pending_ids in self.pending.values() {
+            for pending_id in pending_ids.iter() {
+                pcache.insert(*pending_id, true);
+            }
+        }
+        let mut a: Vec<Pgid> = Vec::new();
+        for id in self.ids.iter() {
+            if !pcache.contains_key(id) {
+                a.push(*id);
+            }
+        }
+        self.ids = a;
+        self.reindex();
+        Ok(())
+    }
+
     pub(crate) fn release(&mut self, txid: Txid) {
         let mut m: Vec<Pgid> = Vec::new();
         let mut remove_txid: Vec<Txid> = Vec::new();
@@ -196,9 +221,6 @@ mod tests {
     use super::*;
     #[test]
     fn test_freelist_allocate() {
-        // let ids: Vec<Pgid> = vec![
-        //     2, 3, 6, 7, 8, 10, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24,
-        // ];
         let ids: Vec<Pgid> = vec![2, 3];
         let mut freelist = FreeList {
             ids: ids,

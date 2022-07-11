@@ -4,11 +4,9 @@ use crate::error::{NKError, NKResult};
 use crate::page::{Meta, OwnerPage, Page, Pgid};
 
 use lock_api::{RawMutex, RawRwLock};
-use std::borrow::BorrowMut;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ptr::null;
-use std::rc::Rc;
 use std::sync::{Arc, RwLock, Weak};
 pub(crate) type Txid = u64;
 
@@ -47,32 +45,63 @@ impl Tx {
     }
 
     pub(crate) fn id(&self) -> Txid {
-        0
+        self.0.meta.borrow().txid
     }
 
     fn tx(&self) -> Arc<TxImpl> {
         self.0.clone()
     }
 
-    pub(crate) fn commit(&mut self) -> NKResult<()> {
+    pub fn rollback(&mut self) -> NKResult<()> {
+        self._rollback()
+    }
+
+    pub(crate) fn _rollback(&mut self) -> NKResult<()> {
+        let db = self.0.db();
+        if self.0.writable {
+            db.freelist
+                .try_write()
+                .unwrap()
+                .rollback(self.tx().meta.borrow().txid)?;
+            let free_page = db.page(db.meta().freelist);
+            db.freelist
+                .try_write()
+                .unwrap()
+                .reload(unsafe { &*free_page })?;
+        }
+        self.close();
+        Ok(())
+    }
+
+    pub fn commit(&mut self) -> NKResult<()> {
         let tx = self.tx();
         let db = tx.db();
 
         tx.root
             .borrow_mut()
             .rebalance(db.get_page_size() as usize)?;
-        tx.root.borrow_mut().spill(self.0.clone())?;
+        if let Err(e) = tx.root.borrow_mut().spill(self.0.clone()) {
+            self._rollback()?;
+            return Err(e);
+        }
         //回收旧的freelist列表
-        {
-            db.freelist
-                .try_write()
-                .unwrap()
-                .free(tx.meta.borrow().txid, unsafe {
-                    &*db.page(tx.meta.borrow().freelist)
-                });
-        };
+
+        db.freelist
+            .try_write()
+            .unwrap()
+            .free(tx.meta.borrow().txid, unsafe {
+                &*db.page(tx.meta.borrow().freelist)
+            });
+
         let size = db.freelist.try_read().unwrap().size();
-        let mut p = db.allocate(size / db.get_page_size() as usize + 1)?;
+        let mut p = match db.allocate(size / db.get_page_size() as usize + 1) {
+            Ok(_p) => _p,
+            Err(e) => {
+                self._rollback()?;
+                return Err(e);
+            }
+        };
+
         let page = p.to_page_mut();
         db.freelist.try_write().unwrap().write(page);
 
@@ -82,10 +111,16 @@ impl Tx {
         tx.meta.borrow_mut().root.root = tx.root.borrow().ibucket.root;
         println!("meta root pgid:{}", tx.root.borrow().ibucket.root);
         //write dirty page
-        tx.write()?;
+        if let Err(e) = tx.write() {
+            self._rollback()?;
+            return Err(e);
+        }
 
         //write meta
-        tx.write_meta()?;
+        if let Err(e) = tx.write_meta() {
+            self._rollback()?;
+            return Err(e);
+        }
 
         self.close();
 

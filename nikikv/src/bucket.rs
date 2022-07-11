@@ -4,7 +4,6 @@ use crate::node::{Node, NodeImpl};
 use crate::page::{BranchPageFlag, BucketLeafFlag, LeafPageElementSize, OwnerPage, Page, Pgid};
 use crate::tx::TxImpl;
 
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem::size_of;

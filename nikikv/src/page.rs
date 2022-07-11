@@ -4,11 +4,9 @@ use crate::{error::NKError, error::NKResult};
 use crate::{magic, version};
 use fnv::FnvHasher;
 use memoffset::offset_of;
-use std::borrow::Borrow;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::ops::Sub;
 //
 
 pub(crate) const MetaSize: usize = size_of::<Meta>();
