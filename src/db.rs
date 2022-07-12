@@ -420,6 +420,7 @@ impl DBImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str;
     use std::thread;
 
     #[test]
@@ -441,35 +442,32 @@ mod tests {
 
     #[test]
     fn test_tx_create_bucket() {
-        let mut db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
-        let mut tx1 = db.begin_rwtx();
-        tx1.create_bucket("888".as_bytes()).unwrap();
-        tx1.commit();
-        db.print();
-        let mut tx2 = db.begin_rwtx();
-        let b = tx2.bucket("888".as_bytes()).unwrap();
-        b.put(b"001", b"aaa");
-        b.put(b"002", b"bbb");
-        b.put(b"003", b"ccc");
-        b.put(b"004", b"ddd");
-        tx2.commit();
-        db.print();
-        println!("------------------");
-        let mut tx4 = db.begin_rwtx();
-        let b = tx4.bucket("888".as_bytes()).unwrap();
-        let v1 = b.get(b"001");
-        println!("{:?}", v1);
-        let v2 = b.get(b"004");
-        println!("{:?}", v2);
-        println!("------------------");
-        let mut tx3 = db.begin_rwtx();
-        let b = tx3.bucket("888".as_bytes()).unwrap();
-        b.put(b"005", b"aaa");
-        b.put(b"006", b"bbb");
-        b.put(b"007", b"ccc");
-        b.put(b"008", b"ddd");
-        tx3.rollback();
-        db.print();
+        let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
+
+        db.update(Box::new(|tx: &mut Tx| -> NKResult<()> {
+            match tx.create_bucket("default".as_bytes()) {
+                Ok(_) => println!("create default bucket success"),
+                Err(NKError::ErrBucketExists(e)) => println!("{} bucket exist", e),
+                Err(e) => panic!("create bucket error"),
+            }
+            Ok(())
+        }))
+        .unwrap();
+
+        db.update(Box::new(|tx: &mut Tx| -> NKResult<()> {
+            let b = tx.bucket("default".as_bytes())?;
+            b.put(b"abc", b"123").unwrap();
+            Ok(())
+        }))
+        .unwrap();
+
+        db.view(Box::new(|tx: &mut Tx| -> NKResult<()> {
+            let b = tx.bucket("default".as_bytes())?;
+            let v = b.get(b"abc").unwrap();
+            println!("value:{:?}", str::from_utf8(v).unwrap());
+            Ok(())
+        }))
+        .unwrap();
     }
 
     #[test]

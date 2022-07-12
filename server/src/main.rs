@@ -16,12 +16,8 @@ use tokio::signal;
 #[tokio::main]
 async fn main() {
     print_banner();
-    // let c = Options::default();
-    let db = DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
-    // let mut tx = db.begin_rwtx();
-    // tx.create_bucket("default".as_bytes()).unwrap();
-    // tx.commit();
 
+    let db = DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
     db.update(Box::new(|tx: &mut Tx| -> NKResult<()> {
         match tx.create_bucket("default".as_bytes()) {
             Ok(_) => println!("create default bucket success"),
