@@ -23,7 +23,7 @@ pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
 
 const DEFAULT_FILL_PERCENT: f64 = 0.5;
 
-pub(crate) struct Bucket {
+pub struct Bucket {
     pub(crate) ibucket: IBucket,
     pub(crate) nodes: RefCell<HashMap<Pgid, Node>>,
     pub(crate) weak_tx: ArcWeak<TxImpl>,
@@ -119,7 +119,7 @@ impl Bucket {
         Cursor::new(self)
     }
 
-    pub(crate) fn put(&mut self, key: &[u8], value: &[u8]) -> NKResult<()> {
+    pub fn put(&mut self, key: &[u8], value: &[u8]) -> NKResult<()> {
         if key.len() == 0 {
             return Err(NKError::ErrKeyRequired);
         } else if key.len() > MAX_KEY_SIZE {
@@ -138,7 +138,7 @@ impl Bucket {
         Ok(())
     }
 
-    pub(crate) fn get(&mut self, key: &[u8]) -> Option<&[u8]> {
+    pub fn get(&mut self, key: &[u8]) -> Option<&[u8]> {
         let mut c = self.cursor();
         let item = c.seek(key).unwrap();
         if Some(key) == item.0 && (item.2 & BucketLeafFlag) == 1 {
@@ -147,7 +147,7 @@ impl Bucket {
         item.1
     }
 
-    pub(crate) fn delete(&mut self, key: &[u8]) -> NKResult<()> {
+    pub fn delete(&mut self, key: &[u8]) -> NKResult<()> {
         let mut c = self.cursor();
         let item = c.seek(key)?;
         if item.flags() & BucketLeafFlag != 0 {
@@ -325,11 +325,9 @@ impl Bucket {
         for (name, child) in self.buckets.borrow_mut().iter_mut() {
             // b.in
             let value = if child.inline_able() {
-                println!("bucket is inline_able");
                 child.free()?;
                 child.write()
             } else {
-                println!("bucket is no inline_able, to spill");
                 child.spill(atx.clone())?;
                 let value = vec![0u8; BucketHeaderSize];
                 let bucket = value.as_ptr() as *mut IBucket;

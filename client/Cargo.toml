@@ -1,13 +1,13 @@
 [package]
-name = "server"
+name = "client"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nikidb = { path = "../", version = "0.1.0" }
-redcon = { path = "../redcon", version = "0.1.0" }
+rustyline = "9.0.0"
 tokio = { version = "1", features = ["full"] }
+redcon = { path = "../redcon", version = "0.1.0" }
+nikidb = { path = "../", version = "0.1.0" }
 bytes = "1"
-futures = "0.3.17"

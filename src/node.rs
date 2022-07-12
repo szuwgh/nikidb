@@ -138,13 +138,11 @@ impl Node {
     pub(crate) fn read(&mut self, p: &Page) {
         let mut node_mut = self.node_mut();
         node_mut.pgid = p.id;
-        println!("p.flags:{}", p.flags);
         node_mut.is_leaf = (p.flags & LeafPageFlag) != 0;
         let count = p.count as usize;
         node_mut.inodes = Vec::with_capacity(count);
         for i in 0..count {
             let mut inode = INode::new();
-            // println!("is_leaf:{}", node_mut.is_leaf);
             if node_mut.is_leaf {
                 let elem = p.leaf_page_element(i);
                 inode.flags = elem.flags;
@@ -363,7 +361,6 @@ impl Node {
         if self.size() > threshold && self.node().inodes.len() > self.min_keys() {
             return Ok(());
         }
-        println!("rebalance node");
         //当前节点是根节点，特殊处理
         if self.parent().is_none() {
             //当前节点是branch节点并且只有一个一个inode, 分裂当前节点
@@ -588,14 +585,7 @@ impl Node {
                 );
             }
             n.node_mut().pgid = page.id;
-
             n.write(page);
-            println!(
-                "allocate ,pgid:{},flag:{},is_leaf:{}",
-                page.id,
-                page.flags,
-                n.node().is_leaf
-            );
             tx.pages.borrow_mut().insert(page.id, p);
             n.node_mut().spilled = true;
 

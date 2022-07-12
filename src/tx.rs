@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 pub(crate) type Txid = u64;
 
-pub(crate) struct Tx(pub(crate) Arc<TxImpl>);
+pub struct Tx(pub(crate) Arc<TxImpl>);
 
 unsafe impl Sync for Tx {}
 unsafe impl Send for Tx {}
@@ -28,7 +28,7 @@ impl Tx {
         }
     }
 
-    pub(crate) fn create_bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
+    pub fn create_bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
         self.0
             .root
             .borrow_mut()
@@ -36,7 +36,7 @@ impl Tx {
             .map(|m| unsafe { &mut *m })
     }
 
-    pub(crate) fn bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
+    pub fn bucket(&mut self, name: &[u8]) -> NKResult<&mut Bucket> {
         self.0
             .root
             .borrow_mut()
@@ -109,7 +109,6 @@ impl Tx {
         tx.pages.borrow_mut().insert(page.id, p);
 
         tx.meta.borrow_mut().root.root = tx.root.borrow().ibucket.root;
-        println!("meta root pgid:{}", tx.root.borrow().ibucket.root);
         //write dirty page
         if let Err(e) = tx.write() {
             self._rollback()?;
@@ -179,7 +178,6 @@ impl TxImpl {
             let page = p.1.to_page();
             let page_size = self.dbImpl.get_page_size();
             let offset = page.id * page_size as u64;
-            println!("write page id:{}", page.id);
             self.db().write_at(&p.1.value, offset)?;
         }
         self.db().sync()?;
@@ -194,7 +192,6 @@ impl TxImpl {
             self.meta.borrow_mut().write(p);
             p.id
         };
-        println!("meta id:{}, meta page size{}", id, page_size);
         self.db().write_at(&buf, id * page_size as u64)?;
 
         self.db().sync()?;

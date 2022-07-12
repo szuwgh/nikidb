@@ -26,7 +26,7 @@ fn get_page_size() -> usize {
 pub struct DB(Arc<DBImpl>);
 
 impl DB {
-    fn begin_rwtx(&mut self) -> Tx {
+    pub fn begin_rwtx(&self) -> Tx {
         unsafe {
             self.0.rw_lock.raw().lock();
         }
@@ -46,7 +46,7 @@ impl DB {
         tx
     }
 
-    fn begin_tx(&mut self) -> Tx {
+    pub fn begin_tx(&self) -> Tx {
         unsafe {
             self.0.mmap.raw().lock_shared();
         }
@@ -55,6 +55,14 @@ impl DB {
         self.0.txs.try_write().unwrap().push(tx.clone());
         tx
     }
+
+    pub fn open(db_path: &str, options: Options) -> NKResult<DB> {
+        DBImpl::open(db_path, options)
+    }
+
+    pub fn update() {}
+
+    pub fn view() {}
 
     fn print(&self) {
         self.0.print();
@@ -388,7 +396,6 @@ mod tests {
     fn test_db_mmap() {
         let db = DBImpl::open("./test.db", DEFAULT_OPTIONS).unwrap();
         let mut tx = unsafe { (&*(db.0.mmap.try_read().unwrap().meta0)).txid };
-        println!("txid:{}", tx);
         let mut buf = vec![0; 4096];
         let page =
             db.0.mmap
@@ -417,7 +424,14 @@ mod tests {
         b.put(b"004", b"ddd");
         tx2.commit();
         db.print();
-
+        println!("------------------");
+        let mut tx4 = db.begin_rwtx();
+        let b = tx4.bucket("888".as_bytes()).unwrap();
+        let v1 = b.get(b"001");
+        println!("{:?}", v1);
+        let v2 = b.get(b"004");
+        println!("{:?}", v2);
+        println!("------------------");
         let mut tx3 = db.begin_rwtx();
         let b = tx3.bucket("888".as_bytes()).unwrap();
         b.put(b"005", b"aaa");

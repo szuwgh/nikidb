@@ -1,8 +1,7 @@
 use bytes::{Buf, Bytes};
 use futures::future::BoxFuture;
-use nikikv::db::DbDropGuard;
-use nikikv::db::DB;
-use nikikv::option::Options;
+use nikidb::db::DB;
+use nikidb::db::DEFAULT_OPTIONS;
 use redcon::cmd::Command;
 use redcon::connection::Connection;
 use redcon::frame::Frame;
@@ -20,9 +19,12 @@ use tokio::signal;
 #[tokio::main]
 async fn main() {
     print_banner();
-    let c = Options::default();
-    let db_holder = DbDropGuard::new(c);
-    let handler = Handler { db_holder };
+    // let c = Options::default();
+    let db = DB::open("./test.db", DEFAULT_OPTIONS).unwrap();
+    // let mut tx = db.begin_rwtx();
+    // tx.create_bucket("default".as_bytes()).unwrap();
+    // tx.commit();
+    let handler = Handler { db };
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
     println!("nikidb is running, ready to accept connections.");
     server::run(listener, signal::ctrl_c(), Arc::new(Box::new(handler))).await;
@@ -35,7 +37,7 @@ fn print_banner() {
 
 #[derive(Clone)]
 struct Handler {
-    db_holder: DbDropGuard,
+    db: DB,
 }
 
 impl AsyncFn for Handler {
@@ -43,24 +45,28 @@ impl AsyncFn for Handler {
         Box::pin(async {
             match _cmd {
                 Command::Get(_cmd) => {
-                    match self.db_holder.db().get(_cmd.key.as_bytes()) {
-                        Ok(entry) => {
-                            let resp = Frame::Simple(String::from_utf8(entry.value).unwrap());
-                            _conn.write_frame(&resp).await;
-                        }
-                        Err(_) => {
-                            let resp = Frame::Error("not found".to_owned());
-                            _conn.write_frame(&resp).await;
-                        }
+                    let v = {
+                        let mut tx = self.db.begin_tx();
+                        let b = tx.bucket("default".as_bytes()).unwrap();
+                        let x = match b.get(_cmd.key.as_bytes()) {
+                            Some(v) => String::from_utf8(v.to_vec()).unwrap(),
+                            None => "not found".to_owned(),
+                        };
+                        tx.rollback().unwrap();
+                        x
                     };
+                    let resp = Frame::Simple(v);
+                    _conn.write_frame(&resp).await.unwrap();
                 }
                 Command::Set(_cmd) => {
-                    self.db_holder
-                        .db()
-                        .put(_cmd.key.as_bytes(), &_cmd.value)
-                        .unwrap();
+                    {
+                        let mut tx = self.db.begin_rwtx();
+                        let b = tx.bucket("default".as_bytes()).unwrap();
+                        b.put(_cmd.key.as_bytes(), &_cmd.value).unwrap();
+                        tx.commit().unwrap();
+                    }
                     let resp = Frame::Simple("OK".to_string());
-                    _conn.write_frame(&resp).await;
+                    _conn.write_frame(&resp).await.unwrap();
                 }
                 Command::Publish(_cmd) => {}
                 Command::Subscribe(_cmd) => {}

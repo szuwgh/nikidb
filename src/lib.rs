@@ -1,6 +1,6 @@
 mod bucket;
 mod cursor;
-mod db;
+pub mod db;
 mod error;
 mod freelist;
 mod node;

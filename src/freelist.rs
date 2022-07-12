@@ -60,7 +60,6 @@ impl FreeList {
         if p.id <= 1 {
             panic!("cannot free page 0 or 1: {}", p.id);
         }
-        println!("free page:{}", p.id);
         let ids = self.pending.entry(txid).or_insert(Vec::new());
         for id in p.id..=p.id + p.overflow as Pgid {
             if self.cache.contains_key(&id) {
@@ -79,10 +78,6 @@ impl FreeList {
         if self.ids.len() == 0 {
             return 0;
         }
-        println!(
-            "allocate freelist ids->:{:?},size:{},peeding:{:?}",
-            self.ids, n, self.pending,
-        );
         let mut initial: Pgid = 0;
         let mut previd: Pgid = 0;
         let item = self.ids.iter().enumerate().position(|(_i, _id)| {
@@ -228,8 +223,6 @@ mod tests {
             cache: HashMap::new(),
         };
         let pgid = freelist.allocate(1);
-        println!("pgid:{}", pgid);
-        println!("ids:{:?}", freelist.ids);
     }
 
     #[test]
@@ -249,9 +242,6 @@ mod tests {
             pending: map,
             cache: HashMap::new(),
         };
-
-        println!("free_count:{}", freelist.free_count());
-        println!("pending_count:{:?}", freelist.pending_count());
     }
 
     #[test]
@@ -274,6 +264,5 @@ mod tests {
         let mut dst: Vec<Pgid> = vec![0; 10];
         freelist.copy_all(&mut dst);
         dst.sort_unstable();
-        println!("dst:{:?}", dst);
     }
 }

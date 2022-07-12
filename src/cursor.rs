@@ -163,11 +163,6 @@ impl<'a> Cursor<'a> {
 
     pub(crate) fn seek_item(&mut self, key: &[u8]) -> NKResult<Item<'a>> {
         self.stack.clear();
-        println!(
-            "seek root:{},{}",
-            self.bucket.ibucket.root,
-            str::from_utf8(key).unwrap()
-        );
         self.search(key, self.bucket.ibucket.root)?;
         let ref_elem = self.stack.last().ok_or("stack empty")?;
         if ref_elem.index >= ref_elem.count() {

@@ -5,7 +5,7 @@ use thiserror::Error;
 pub(crate) type NKResult<T> = Result<T, NKError>;
 
 #[derive(Error, Debug)]
-pub(crate) enum NKError {
+pub enum NKError {
     #[error("Unexpected: {0}, {1}")]
     UnexpectIO(String, io::Error),
     #[error("Unexpected: {0}")]

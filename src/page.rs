@@ -137,7 +137,6 @@ impl Meta {
 
     pub(crate) fn validate(&self) -> NKResult<()> {
         if self.magic != magic {
-            println!("{},{}", self.magic, magic);
             return Err(NKError::ErrInvalid);
         } else if self.version != version {
             return Err(NKError::ErrVersionMismatch);
