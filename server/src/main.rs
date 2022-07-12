@@ -1,19 +1,16 @@
-use bytes::{Buf, Bytes};
 use futures::future::BoxFuture;
 use nikidb::db::DB;
 use nikidb::db::DEFAULT_OPTIONS;
+use nikidb::error::{NKError, NKResult};
+use nikidb::tx::Tx;
 use redcon::cmd::Command;
 use redcon::connection::Connection;
 use redcon::frame::Frame;
 use redcon::server;
 use redcon::server::AsyncFn;
-use redcon::Result;
-use std::cell::RefCell;
 use std::fs;
-use std::future::Future;
 use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::signal;
 
 #[tokio::main]
@@ -24,6 +21,17 @@ async fn main() {
     // let mut tx = db.begin_rwtx();
     // tx.create_bucket("default".as_bytes()).unwrap();
     // tx.commit();
+
+    db.update(Box::new(|tx: &mut Tx| -> NKResult<()> {
+        match tx.create_bucket("default".as_bytes()) {
+            Ok(_) => println!("create default bucket success"),
+            Err(NKError::ErrBucketExists(e)) => println!("{} bucket exist", e),
+            Err(e) => panic!("error"),
+        }
+        Ok(())
+    }))
+    .unwrap();
+
     let handler = Handler { db };
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
     println!("nikidb is running, ready to accept connections.");
@@ -46,24 +54,31 @@ impl AsyncFn for Handler {
             match _cmd {
                 Command::Get(_cmd) => {
                     let v = {
-                        let mut tx = self.db.begin_tx();
-                        let b = tx.bucket("default".as_bytes()).unwrap();
-                        let x = match b.get(_cmd.key.as_bytes()) {
-                            Some(v) => String::from_utf8(v.to_vec()).unwrap(),
-                            None => "not found".to_owned(),
-                        };
-                        tx.rollback().unwrap();
+                        let mut x: Option<String> = None;
+                        self.db
+                            .view(Box::new(|tx: &mut Tx| -> NKResult<()> {
+                                let b = tx.bucket("default".as_bytes())?;
+                                x = match b.get(_cmd.key.as_bytes()) {
+                                    Some(v) => Some(String::from_utf8(v.to_vec()).unwrap()),
+                                    None => Some("not found".to_owned()),
+                                };
+                                Ok(())
+                            }))
+                            .unwrap();
                         x
                     };
-                    let resp = Frame::Simple(v);
+                    let resp = Frame::Simple(v.unwrap());
                     _conn.write_frame(&resp).await.unwrap();
                 }
                 Command::Set(_cmd) => {
                     {
-                        let mut tx = self.db.begin_rwtx();
-                        let b = tx.bucket("default".as_bytes()).unwrap();
-                        b.put(_cmd.key.as_bytes(), &_cmd.value).unwrap();
-                        tx.commit().unwrap();
+                        self.db
+                            .update(Box::new(|tx: &mut Tx| -> NKResult<()> {
+                                let b = tx.bucket("default".as_bytes())?;
+                                b.put(_cmd.key.as_bytes(), &_cmd.value).unwrap();
+                                Ok(())
+                            }))
+                            .unwrap();
                     }
                     let resp = Frame::Simple("OK".to_string());
                     _conn.write_frame(&resp).await.unwrap();

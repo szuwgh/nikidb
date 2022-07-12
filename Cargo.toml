@@ -2,8 +2,12 @@
 name = "nikidb"
 version = "0.1.0"
 edition = "2021"
+description = "an embedded k-v storage written in rust, similar to boltdb"
+license = "MIT"
+authors = ["Walter Wu"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 
 [dependencies]
 integer-encoding = "3.0.2"    

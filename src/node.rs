@@ -31,7 +31,6 @@ pub(crate) struct NodeImpl {
 impl NodeImpl {
     pub(crate) fn new() -> NodeImpl {
         Self {
-            //  bucket: bucket,
             is_leaf: false,
             inodes: Vec::new(),
             parent: None,
@@ -501,7 +500,7 @@ impl Node {
         let threshold = (page_size as f64 * fill_percent) as usize;
         let (split_index, _) = self.split_index(threshold);
 
-        let mut next = NodeImpl::new().leaf(self.node().is_leaf).build();
+        let next = NodeImpl::new().leaf(self.node().is_leaf).build();
         next.node_mut().inodes = self.node_mut().inodes.drain(split_index..).collect();
         Some(next)
     }

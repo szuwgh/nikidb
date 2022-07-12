@@ -18,15 +18,15 @@ const MAX_MAP_SIZE: u64 = 0x0FFF_FFFF; //256TB
 const MAX_MMAP_STEP: u64 = 1 << 30;
 
 fn get_page_size() -> usize {
-    // page_size::get()
-    return 256;
+    page_size::get()
+    // return 256;
 }
 
 #[derive(Clone)]
 pub struct DB(Arc<DBImpl>);
 
 impl DB {
-    pub fn begin_rwtx(&self) -> Tx {
+    fn begin_rwtx(&self) -> Tx {
         unsafe {
             self.0.rw_lock.raw().lock();
         }
@@ -46,7 +46,7 @@ impl DB {
         tx
     }
 
-    pub fn begin_tx(&self) -> Tx {
+    fn begin_tx(&self) -> Tx {
         unsafe {
             self.0.mmap.raw().lock_shared();
         }
@@ -56,13 +56,43 @@ impl DB {
         tx
     }
 
+    fn begin(&self, writable: bool) -> Tx {
+        if writable {
+            self.begin_rwtx()
+        } else {
+            self.begin_tx()
+        }
+    }
+
     pub fn open(db_path: &str, options: Options) -> NKResult<DB> {
         DBImpl::open(db_path, options)
     }
 
-    pub fn update() {}
+    pub fn update<'a>(
+        &self,
+        mut handler: Box<dyn FnMut(&mut Tx) -> NKResult<()> + 'a>,
+    ) -> NKResult<()> {
+        let mut t = self.begin(true);
+        if let Err(e) = handler(&mut t) {
+            t.rollback()?;
+            return Err(e);
+        }
+        t.commit()?;
+        Ok(())
+    }
 
-    pub fn view() {}
+    pub fn view<'a>(
+        &self,
+        mut handler: Box<dyn FnMut(&mut Tx) -> NKResult<()> + 'a>,
+    ) -> NKResult<()> {
+        let mut t = self.begin(false);
+        if let Err(e) = handler(&mut t) {
+            t.rollback()?;
+            return Err(e);
+        }
+        t.rollback()?;
+        Ok(())
+    }
 
     fn print(&self) {
         self.0.print();

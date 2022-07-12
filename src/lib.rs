@@ -1,11 +1,11 @@
 mod bucket;
 mod cursor;
 pub mod db;
-mod error;
+pub mod error;
 mod freelist;
 mod node;
 mod page;
-mod tx;
+pub mod tx;
 
 pub(crate) const magic: u32 = 0xED0CDAED;
 pub(crate) const version: u32 = 2;

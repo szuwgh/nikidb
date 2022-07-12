@@ -2,7 +2,7 @@ use std::fmt;
 use std::io;
 use std::io::Error as IOError;
 use thiserror::Error;
-pub(crate) type NKResult<T> = Result<T, NKError>;
+pub type NKResult<T> = Result<T, NKError>;
 
 #[derive(Error, Debug)]
 pub enum NKError {
