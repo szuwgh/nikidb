@@ -5,9 +5,9 @@ edition = "2021"
 description = "an embedded k-v storage written in rust, similar to boltdb"
 license = "MIT"
 authors = ["Walter Wu"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
+homepage = "https://github.com/szuwgh/nikidb"
+repository = "https://github.com/szuwgh/nikidb"
+keywords = ["database", "kvdb"]
 
 [dependencies]
 integer-encoding = "3.0.2"    
