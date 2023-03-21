@@ -10,13 +10,3 @@ authors = ["Walter Wu"]
 
 
 [dependencies]
-integer-encoding = "3.0.2"    
-crc = "1.8"
-memmap = "0.7"
-log = "0.4.8"
-thiserror = "1.0"
-fnv = "1.0.6"
-memoffset = "0.6"
-page_size = "0.4.2"
-parking_lot = "0.7.1"
-lock_api = "0.1.5"

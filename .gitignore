@@ -3,6 +3,7 @@
 pkg/
 server/target/
 nikidb/target/
+srcbak/target/
 target/
 .data
 *.data.*
